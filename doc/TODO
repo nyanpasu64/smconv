@@ -1,0 +1,33 @@
+.--------.
+| SMCONV |
+`--------'
+
+* The original version of smconv over reported how much RAM was left.
+  Need to accurately report exactly how much RAM is available in all
+  circumstances.
+
+.-------------------.
+| ALL SOUND DRIVERS |
+`-------------------'
+
+* fix bugs
+* sample offset?
+* tremor?
+* add ability to set pos & neg vibrato values
+
+.--------------------.
+| SUPER SNESMod NoFX |
+`--------------------'
+
+* when using filter sweep changing from one filter to another is very noisy
+  compared to the abnofx version need to fix 
+* tremolo and panbrello need testing
+* swing tempo option for changing every 16th note or every 8th note
+* phase inversion
+* pitch modulation to modify direct gain
+
+.-------.
+| Misc. |
+`-------'
+
+* Github!

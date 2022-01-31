@@ -1,0 +1,34 @@
+[PATTERN 0]
+
+	[Channel 03]				[Channel 04]
+
+000:	S9C (Z11-4F will set delay between
+	     cycle)
+
+002:	Z4F set wavetable delay to 252
+             (4Fh-10h)*4
+
+018:						S48 (enable wavetable cycle)
+
+026:	Z30 set wavetable delay to 128
+
+[PATTERN 2] (This blends back and forth between two samples)
+
+02f:						S49 (disable wavetable cycle)
+
+
+
+
+
+
+
+
+
+Note:
+* No volume envelope was used for Sample 1 so many different volume
+options may be used.
+
+  Another option is to use the same waveform in multiple slots with different
+volume envelopes.
+
+

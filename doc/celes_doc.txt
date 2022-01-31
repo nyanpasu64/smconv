@@ -1,0 +1,573 @@
+SMCONV v0.1.6 (C) 2009-2017 Mukunda Johnson (www.mukunda.com)
+Modifications to conversion tool by Augustus Blackheart.
+
+Convert impulse tracker modules to an SNES SPC700 sound file or soundbank.
+Usage: smconv [options] [input]
+
+.-----------------------------------------------------------------------.
+|                       SNESMOD COMPOSITION RULES                       |
+|-----------------------------------------------------------------------|
+|                                                                       |
+| Impulse tracker format must be used. 8 Channels MAX.                  |
+|                                                                       |
+| Notes can not exceed 128KHz playback rate.                            |
+|                                                                       |
+| The module must be in instrument mode and must have instruments.      |
+|                                                                       |
+| DO NOT USE UNDEFINED INSTRUMENTS, they will not silence the channel,  |
+| THEY WILL CAUSE MALFUNCTION!                                          |
+|                                                                       |
+| The 64 or less samples must fit within 58K of memory. This is AFTER   |
+| BRR compression. 8-bit samples will be reduced to 9/16 size. 16-bit   |
+| samples will be reduced to 9/32 size.                                /
+|                                                                     |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                USAGE                                |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| To use alternate versions of SNESMOD edit DRIVER in your Makefile.  |
+|                                                                     |
+| DRIVER		:= PITCHMOD                                   |
+| ASFLAGS		:= --cpu 65815 -S -D HIROM -D $(DRIVER)       |
+| SMCONVFL		:= --hirom --driver $(DRIVER) --soundbank \   |
+|                          --output soundbank                         |
+|                                                                     |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                            CUT FEATURES                             |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| This is not a complete IT implementation, here are some IT features |
+| that you must not use:                                              |
+|                                                                     |
+| * New Note Actions are not supported.                               |
+| * Complex sample mapping is not supported.                          |
+|     Only the center entry in each instruments sample map will be    |
+|     used for the entire map! (and the note values are ignored!!!)   |
+| * Pitch envelope is not supported.                                  |
+| * No stereo samples!!                                               |
+| * Envelope sustain must remain on one node only.                    |
+| * Envelope nodes must be only 1 to 256 ticks apart.                 |
+| * Envelope carry is not supported.                                  |
+| * Random volume/panning variations are not supported.               |
+| * Pitch/Pan separation is not supported.                            |
+| * 'Old effects' must be set to 'off'.                               |
+| * Only linear frequency mode is supported.                          |
+| * Gxx must not share memory with Exx/Fxx.                           |
+| * Auto-vibrato is not supported.                                    |
+| * Filters are not supported.                                        |
+| * Panning envelopes are not supported                               |
+| * These volume effects are not supported:                           |
+|     Ex, Fx, Gx, Hx                                                  |
+| * These effects are partially/not supported or have been            |
+|   repurposed:                                                       |
+|     Axx - Set song speed (hex)                                      |
+|     Bxx - Jump to Order (hex)                                       |
+|     Cxx - Pattern Break          NOT SUPPORTED, REPURPOSED          |
+|                                  *Set pattern length instead*       |
+|     Dxy - Volume slide                                              |
+|     Exy - Pitch slide down                                          |
+|     Fxy - Pitch slide up                                            |
+|     Gxx - Glissando                                                 |
+|     Hxy - Vibrato                                                   |
+|     Ixx - Tremor                 NOT SUPPORTED, REPURPOSED          |
+|     Jxy - Arpeggio                                                  |
+|     Kxy - Volume slide+Vibrato                                      |
+|     Lxy - Volume slide+Glissando                                    |
+|     Mxx - Set channel volume     NOT SUPPORTED, REPURPOSED          |
+|     Nxx - Channel volume slide   NOT SUPPORTED, REPURPOSED          |
+|     Oxx - Sample offset          NOT SUPPORTED, REPURPOSED          |
+|     Pxy - Panning slide                                             |
+|     Qxy - Retrigger note                                            |
+|     Rxy - Tremolo                                                   |
+|     S0x - Set filter             NOT SUPPORTED, REPURPOSED          |
+|     S1x - Set glissando ctrl     NOT SUPPORTED, REPURPOSED          |
+|     S2x - Set finetine           NOT SUPPORTED, REPURPOSED          |
+|     S33 - Random vibrato wave    NOT SUPPORTED, REPURPOSED          |
+|     S43 - Random tremolo wave    NOT SUPPORTED, REPURPOSED          |
+|     S5x - Set panbrello wave     NOT SUPPORTED, REPURPOSED          |
+|     S6x - Pattern delay (ticks)  NOT SUPPORTED                      |
+|     S7x - New note action        NOT SUPPORTED                      |
+|     S8x - Set panning position                                      |
+|     S9x - not supported          NOT SUPPORTED, REPURPOSED          |
+|     SAy - not supported          NOT SUPPORTED                      |
+|     SBx - Pattern loop           NOT SUPPORTED                      |
+|     SCx - Note cut                                                  |
+|     SDx - Note delay                                                |
+|     SEx - Pattern delay (row)    NOT SUPPORTED, REPURPOSED          |
+|     SFx - not supported          Set parameter MIDI Macro           |
+|     T0y - Tempo slide down                                          |
+|     T1y - Tempo slide up                                            |
+|     Txy - Tempo                                                     |
+|     Uxy - Fine vibrato           NOT SUPPORTED, REPURPOSED          |
+|     Vxy - Global volume          NOT SUPPORTED, REPURPOSED          |
+|     Wxy - Global volume slide    NOT SUPPORTED, REPURPOSED          |
+|     Yxy - Panbrello              NOT SUPPORTED                      |
+|     Zxx - MIDI Macros            NOT SUPPORTED, REPURPOSED          |
+|                                                                     |
+| * '+++' patterns ARE supported!!!                                   |
+|                                                                     |
+|:::::::::::::::::::::::::::::. ....... .:::::::::::::::::::::::::::::|
+|  SET SUSTAIN RATE & LEVEL  ::         ::  SET SUSTAIN RATE & LEVEL  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| Cxx ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| C00-FF - Set sustain rate and level for the current channel         |
+|          (%rrrlllll)                                                |
+|                                                                     |
+|::::::::::::::::::. ............................. .::::::::::::::::::|
+|  ECHO FEEDBACK  ::                               ::  ECHO FEEDBACK  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| Ixx ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| I00-7F - Set echo feedback                                          |
+| I80    - Reset echo feedback to the default set in module message   |
+| I81-FF - Set echo feedback negative values                          |
+|                                                                     |
+|:::::::::::::::::::::::::::. ........... .:::::::::::::::::::::::::::|
+|  ENABLE ADSR AND SET AD  ::             ::  ENABLE ADSR AND SET AD  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| Mxx ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| M00-3F - Set wavetable cycle speed                                  |
+| M40-47 - Set minimum wavetable               (-$40; default is $00) |
+| M48-4F - Set maximum wavetable               (-$48; default is $07) |
+| M50-6F - Set echo volume speed                               (-$50) |
+| M70-7E - Set swing tempo (value added to     (-$70; default is $00) |
+|                           base speed)                               |
+|    M7F - Use direct gain mode for the current channel [default]     |
+| M80-FF - Enable ADSR** for current channel and set the attack and   |
+|          decay rate (%Adddaaaa)                                     |
+|                                                                     |
+| *  There are no checks when setting the minium and maximum values.  |
+|    Changing these while the wavetable cycle is active could produce |
+|    unexpected results. These results may vary based on what the     |
+|    wavetable cycle speed is set to.                                 |
+|                                                                     |
+| ** Volume commands will be ignored                                  |
+|                                                                     |
+|::::::::::::::::::. ............................. .::::::::::::::::::|
+|  NOISE OPTIONS  ::                               ::  NOISE OPTIONS  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| Nxx ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| N00-1F - Set minimum noise frequency for frequency sweeps           |
+| N20-3F - Set maximum noise frequency for frequency sweeps   (-$20)  |
+| N40-7F - Set noise frequency sweep speed                 (-$40,*4)  |
+|                                                                     |
+|::::::::::::::::. ................................. .::::::::::::::::|
+|  ECHO VOLUME  ::                                   ::  ECHO VOLUME  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| Oxx ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| O00-7F - Set minimum echo volume for volume sweeps                  |
+| O80    - there is no check for this command it will set the maximum |
+|          echo volume to 80h which should be avoided                 |
+| O81-FF - Set maximum echo volume for volume sweeps                  |
+|                                                                     |
+|:::::::::. ...............................................  .::::::::|
+|  ECHO  ::                                                 ::  ECHO  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| S0x ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S01 - Turn on echo for channel                                      |
+| S02 - Turn off echo for channel                                     |
+| S03 - Turn on echo for all channels                                 |
+| S04 - Turn off echo for all channels                                |
+|                                                                     |
+| * The other echo settings for the module can be configured during   |
+|   conversion. See 'SPECIAL SONG MESSAGE COMMANDS'                   |
+|                                                                     |
+| * When setting the Echo Delay parameter, you lose '2K x D' of       |
+|   sample memory from the SPC.                                       |
+|                                                                     |
+|:::::::::::::::::::::. ....................... .:::::::::::::::::::::|
+|  PITCH MODULATION  ::                         ::  NOISE GENERATION  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| S0x ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S05 - Turn on pitch modulation for one channel                      |
+| S06 - Turn off pitch modulation for one channel                     |
+| S07 - Turn on pitch modulation for all channels                     |
+| S08 - Turn off pitch modulation for all channels                    |
+| S09 - Turn on noise generation for one channel                      |
+| S0A - Turn off noise generation for one channel                     |
+| S0B - Turn on noise generation for all channels                     |
+| S0C - Turn off noise generation for all channels                    |
+|                                                                     |
+|::::::::::. ............................................. .::::::::::|
+|  RESET  ::                                               ::  RESET  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| S0x ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S0D - Disable echo write                                            |
+| S0E - Enable echo write                                             |
+| S0F - Reset EVOL, EFB, EFIR, and disable filter sweep               |
+|                                                                     |
+|::::::::::::::::::::. ......................... .::::::::::::::::::::|
+|  NOISE FREQUENCY  ::                           ::  NOISE FREQUENCY  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| S1x-S2x ::                                                          |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S1x-S2x - Noise frequency, -10h to get your frequency. This         |
+|           automatically disables noise frequency sweep.             |
+|                                                                     |
+| * Applies to all channels that have noise enabled.                  |
+|                                                                     |
+|:::::::::::::::::::::. ....................... .:::::::::::::::::::::|
+|  VIBRATO WAVEFORM  ::                         ::  VIBRATO WAVEFORM  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| S3x  ::                                                             |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S30 - Sine [default]                                                |
+| S31 - Ramp down                                                     |
+| S32 - Square                                                        |
+| S33 - Triangle/Square                                               |
+| S34 - Triangle                                                      |
+| S35 - Ramp Up                                                       |
+| S36 - Square 2                                                      |
+| S37 - Square 3                                                      |
+|                                                                     |
+| * Vibrato, tremolo, and panbrello waveform are set using S3x.       |
+|   The S4x commands are available for IT compatibility. S5x used for |
+|   noise.                                                            |
+|                                                                     |
+|   When using Hxx, Rxx, and Yxx on the same channel they will use    |
+|   the same parameters if unspecified. If you use H42 for vibrato    |
+|   and later use R75 for tremolo, using H00 after the tremolo        |
+|   command is the same as using H75.                                 |
+|                                                                     |
+|::::::::::::::::::::::::::. ............. .::::::::::::::::::::::::::|
+|  FM + VIBRATO WAVEFORM  ::               ::  FM + VIBRATO WAVEFORM  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S38 - Sine                                                          |
+| S39 - Ramp down                                                     |
+| S3A - Square                                                        |
+| S3B - Triangle/Square                                               |
+| S3C - Triangle                                                      |
+| S3D - Ramp Up                                                       |
+| S3E - Square 2                                                      |
+| S3F - Square 3                                                      |
+|                                                                     |
+|:::::::::::::::::::::::::. ............... .:::::::::::::::::::::::::|
+|  SET TREMOLO WAVEFORM  ::                 ::  SET TREMOLO WAVEFORM  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| S4x ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S40 - Sine [default]                                                |
+| S41 - Ramp down                                                     |
+| S42 - Square                                                        |
+| S43 - Triangle/Square                                               |
+|                                                                     |
+| * See note after vibrato commands.                                  |
+|                                                                     |
+|::::::::::::::::::. ............................. .::::::::::::::::::|
+|  MISC COMMANDS  ::                               ::  MISC COMMANDS  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| S4x ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S44 - EVOL max -> min                                               |
+| S45 - EVOL min -> max [default]                                     |
+| S46 - Enable vibrato during glissando on all channels               |
+| S47 - Disable vibrato during glissando [default]                    |
+| S48 - Enable wavetable cycle. This replaces the second sample,      |
+|       which should have a sample rate of 33488Hz and a length of    |
+|       64, with wavetable samples. Up to 8 brr samples can be        |
+|       uploaded using spcChangeWaveTable.                            |
+| S49 - Disable wavetable cycle [default] It is not possible to       |
+|       restore the original sample at this time.                     |
+| S4A - Noise frequency increase                                      |
+| S4B - Noise frequency decrease [default]                            |
+| S4C - Noise frequency repeat on                                     |
+| S4D - Noise frequency repeat off [default]                          |
+| S4E - Noise frequency ping pong on                                  |
+| S4F - Noise frequency ping pong off [default]                       |
+|                                                                     |
+|::::::::::::::::::::::::::. ............. .::::::::::::::::::::::::::|
+|  NOISE FREQUENCY SWEEP  ::               ::  NOISE FREQUENCY SWEEP  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| S5x ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S50-S5F - Start noise frequency sweep (-40h = starting frequency)   |
+|                                                                     |
+|::::::::::::::::::. ............................. .::::::::::::::::::|
+|  SOUND CONTROL  ::                               ::  SOUND CONTROL  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| S9x ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| S90 - Swap echo volume increase/decrease                            |
+| S91 - Surround sound                                                |
+| S92 - Mute channel for pitch modulation                             |
+| S93 - Unmute channel                                                |
+| S94 - Enable FM + vibrato. This replaces the first sample which     |
+|       should have a sample rate of 33488Hz with a length of 64 with |
+|       FM generated waveforms. These waveforms will only be          |
+|       generated when S3[8-F] has been set for a channel. Once this  |
+|       has been set you can generate waveforms by using the vibrato  |
+|       command (Hxy, x = speed & modulation frequency, y = depth &   |
+|       carrier frequency.)                                           |
+| S95 - Disable FM [default]                                          |
+| S96 - Set ZMODE to filter sweep + enable echo volume sweep min->max |
+| S97 - Set ZMODE to filter sweep + enable echo volume sweep max->min |
+| S98 - Set ZMODE to filter sweep                                     |
+| S99 - Set ZMODE to EFIR [default]                                   |
+| S9A - Default filter   [$7f,$00,$00,$00,$00,$00,$00,$00]            |
+| S9B - Bandpass filter  [$34,$33,$00,$d9,$e5,$01,$fc,$eb]            |
+| S9C - Highpass filtr   [$58,$bf,$db,$f0,$fe,$07,$0c,$0c]            |
+| S9D - Lowpass filter   [$0a,$17,$23,$29,$12,$fe,$f3,$f9]            |
+| S9E -                  [$f8,$08,$11,$1c,$1c,$11,$08,$f8]            |
+| S9F -                  [$0d,$22,$22,$24,$11,$f0,$03,$ff]            |
+|                                                                     |
+|:::::::::::::::. ................................... .:::::::::::::::|
+|  ECHO DELAY  ::                                     ::  ECHO DELAY  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| SEx - Change echo delay                                             |
+|                                                                     |
+| * It may take up to about 240ms until the hardware realizes changes |
+|   to the EDL register; ie. when re-allocating the buffer size, the  |
+|   hardware may keep writing up to 30Kbytes according to the old     |
+|   size.                                                             |
+|                                                                     |
+|:::::::::::::::::::::::. ................... .:::::::::::::::::::::::|
+|  FILTER SWEEP SPEED  ::                     ::  FILTER SWEEP SPEED  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| Uxx ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| U00-FF - Set filter sweep speed                                     |
+|                                                                     |
+:::::::::::::::::::::::. ..................... .::::::::::::::::::::::|
+|  SET MASTER VOLUME  ::                       ::  SET MASTER VOLUME  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| Vxx ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| V00-FF - Set master volume                                          |
+|                                                                     |
+|::::::::::::::::::::. ......................... .::::::::::::::::::::|
+|  SET ECHO VOLUME  ::                           ::  SET ECHO VOLUME  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| Yxx ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| Y00-FF - Set echo volume                                            |
+|                                                                     |
+|::::::::::::::::::. ............................. .::::::::::::::::::|
+|  SET PARAMETER  ::                               ::  SET PARAMETER  |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+| Zxx ::                                                              |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                                                                     |
+| [S96|S97|S98]                                                       |
+|       Z80    - Disable channel filter sweep                         |
+|       Zxx    - Sweep to this value* on the current channel          |
+|                                                                     |
+| [S99] Z80    - Reset coefficients to default                        |
+|       Zxx    - Set coefficient value* on the current channel        |
+|                                                                     |
+| * Values >80h are negative numbers.                                 |
+.                                                                     .
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+:    WARNING  WARNING  WARNING  WARNING  WARNING  WARNING  WARNING    :
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+.                                                                     .
+| * Be extremely careful with the echo coefficient values! It's       |
+|   possible to cause harm to your speakers or your ears, especially  |
+|   if you've got headphones on.                                      |
+|                                                                     |
+|   From the Fullsnes - Nocash SNES Specs:                            |
+|                                                                     |
+|     To avoid addition overflows: The sum of POSITIVE values in the  |
+|     first seven registers (FIR0..FIR6) should not exceed +7Fh, and  |
+|     the sum of NEGATIVE values should not exceed -7Fh. The sum of   |
+|     all eight registers (FIR0..FIR7) should be usually around +80h  |
+|     (for leaving the overall output volume unchanged by the FIR     |
+|     unit; instead, echo volumes are usually adjusted via EFB/EVOL   |
+|     registers).                                                     |
+|                                                                     |
+| * Pitch modulation and noise generation are not completely safe for |
+|   video games because there aren't any checks for the sound effects |
+|   on the last two channels (it's especially bad if noise were to be |
+|   on those two channels... although pitch modulation can allow for  |
+|   some unusual effects to the music through the SFX if you want     |
+|   really unusual magic.).                                           |
+|                                                                     |
+| * Special commands such as Sxx and Zxx may overlap with unofficial  |
+|   add-on effects that have been applied since the original Impulse  |
+|   Tracker, however, SNESMod doesn't support those effects in the    |
+|   first place. They might affect playback when you're originally    |
+|   making the song in an unintended fashion, just to note.           |
+.                                                                     .
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+:                        .: SAMPLE QUALITY .:                         :
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+.                                                                     .
+| 16-bit quality is recommended for the SPC samples, since they have  |
+| more data for compressing.                                          |
+|                                                                     |
+| If the loop width of an SPC sample is not a multiple of 16 then the |
+| sample will be unrolled OR resampled with linear interpolation for  |
+| alignment. (it will be resampled if unrolling uses too much memory) |
+|                                                                     |
+| Do not downsample your SPC samples too much or else they will sound |
+| like butt.                                                          |
+|                                                                     |
+| Sample offset is supported for the SPC samples, but there is a      |
+| small chance of creating unwanted NOISE because of the compression. |
+|                                                                     |
+| ALSO NOTE BIDI SAMPLES WILL BE UNROLLED AND USE UP LOTS OF SPACE.   |
+|                                                                     |
+| *ALSO* If you are making songs for a game remember that channel 8   |
+| will be OVERWRITTEN with sound effects. Don't put important stuff   |
+| there. This applies to SNESMod, Pitchmod, and Super SNESMod.        |
+.                                                                     .
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+:                 .: SPECIAL SONG MESSAGE COMMANDS .:                 :
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+.                                                                     .
+| To control the default echo parameters for a module you must        |
+| specify some things in the song message.                            |
+|                                                                     |
+| To trigger this you must put an '[[SNESMOD]]' tag in your song      |
+| message followed by special commands!                               |
+|                                                                     |
+| See the example IT module, it has song message commands!            |
+|                                                                     |
+| Command List:                                                       |
+|                                                                     |
+| EDL <delay value>                                                   |
+|                                                                     |
+|   This sets the echo delay value. Range is 0-15                     |
+|   Delay time will be d*16 milliseconds.                             |
+|   NOTE: each 16ms of delay will use 2K of SPC memory. Your song's   |
+|   size limit will be more restricted with larger amounts of delay   |
+|   used.                                                             |
+|                                                                     |
+|   Issuing this command will enable echo (master) for the song       |
+|                                                                     |
+|   Example:                                                          |
+|                                                                     |
+|     'EDL 5'                                                         |
+|                                                                     |
+|   The echo delay time will be 5*16 (80) milliseconds. 10 Kilobytes  |
+|   will be taken away from the memory space, so it will have some-   |
+|   thing like 48 KB left.                                            |
+|                                                                     |
+| EFB <feedback level>                                                |
+|                                                                     |
+|   Set echo feedback level. Range is -128..127 (-100%..100%)         |
+|   Default value (if no command present) is 0.                       |
+|                                                                     |
+|   Example:                                                          |
+|                                                                     |
+|     'EFB 127'                                                       |
+|                                                                     |
+|   The echo feedback level will be set to 127, or 100%.              |
+|   This value will probably destroy the sound because the feedback   |
+|   will cover the output.                                            |
+|                                                                     |
+| EVOL <volume> [volume right]                                        |
+|                                                                     |
+|   Set echo volume level. Range is -128..127.                        |
+|   One or two values may be given. If only one is specified then it  |
+|   will be used for both left and right outputs. If two values are   |
+|   given then one will be used for each output (left, right)         |
+|                                                                     |
+|   Examples:                                                         |
+|                                                                     |
+|     'EVOL 40'                                                       |
+|                                                                     |
+|   Both left and right echo outputs will have a volume of 40,        |
+|   or 31%.                                                           |
+|                                                                     |
+|     'EVOL 31 -31'                                                   |
+|                                                                     |
+|   Left output will be 25%, right output will be -25%                |
+|                                                                     |
+|   Negative values will indeed inverse the phase of the applied      |
+|   waveform.                                                         |
+|                                                                     |
+| EFIR <c0> [c1] [c2] [c3] [c4] [c5] [c6] [c7]                        |
+|                                                                     |
+|   Specifies the coefficients for the 8-tap FIR filter applied to    |
+|   the echo output.                                                  |
+|                                                                     |
+|   Default values are 127, 0, 0, 0, 0, 0, 0, 0                       |
+|                                                                     |
+|   If less than 8 values are specified then the default values will  |
+|   be used for the rest of the entries.                              |
+|                                                                     |
+|   Example:                                                          |
+|                                                                     |
+|     'EFIR 64 -32 16'                                                |
+|                                                                     |
+|   Set the first three coefficients to these values and the rest     |
+|   will be zero.                                                     |
+|                                                                     |
+| EON <channels>                                                      |
+|                                                                     |
+|   Enable echo for the channels listed.                              |
+|                                                                     |
+|   Example:                                                          |
+|                                                                     |
+|     'EON 1 3 4 5'                                                   |
+|                                                                     |
+|   Enable echo for channels 1 (first), 3, 4, and 5.                  |
+|                                                                     |
+| Here is an example song message with commands in it:                |
+|---------------------------------------------------------------------|
+| Here is my song, blah blah blah blah                                |
+| By Ms.X                                                             |
+|                                                                     |
+| [[SNESMOD]]                                                         |
+| edl 6                                                               |
+| efb 127                                                             |
+| evol 31 -31                                                         |
+| efir 127 0 0 0 0 0 0 0                                              |
+| eon 1 2 3                                                           |
+.                                                                     .
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+:                       .: SPACE SAVING TIPS .:                       :
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+.                                                                     .
+| * Remove commands that are not used. If you have commands and       |
+|   notes after the break pattern command you are wasting bytes.      |
+|                                                                     |
+| * Remove commands that are duplicated. It's not necessary to set    |
+|   the tempo on every pattern if you are not changing the value.     |
+|                                                                     |
+| * Volume envelopes can save a lot of space over using the volume    |
+|   commands.                                                         |
+|                                                                     |
+| * Don't bother with the pattern break command. Just set the         |
+|   pattern length.                                                   |
+|                                                                     |
+| * If there are two patterns where lines 00 - 1f are the same and    |
+|   lines 20-3f are different, cut the patterns in half.              |
+|                                                                     |
+|   For example, if you have two patterns 00 and 01, copy 00 to 02.   |
+|   Set the pattern length to 32. On patterns 00 and 01 move lines    |
+|   20-3f up to 00-1f and again set the pattern length to 32. Now     |
+|   the order is 02,00,02,01 instead of 00,01.                        |
+|                                                                     |
+| * Is the whole sample being used? If not, consider cutting it down. |
+|                                                                     |
+|:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|
+|                            (PLEASE ENJOY)                           |
+`---------------------------------------------------------------------'
+  -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-

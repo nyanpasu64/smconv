@@ -1,0 +1,3607 @@
+0001   0000             ;========================================================
+0002   0000             ; "SM-SPC"
+0003   0000             ;
+0004   0000             ; snesmod spc driver
+0005   0000             ;
+0006   0000             ; (c) 2009 Mukunda Johnson
+0007   0000             ; (c) 2014? Additional code added by KungFuFurby for pitch modulation and noise generation
+0008   0000             ;
+0009   0000             ;========================================================
+0010   0000             
+0011   0000             #define DEBUGINC inc debug \ mov SPC_PORT0, debug
+0012   0000             
+0013   0000             .define LBYTE(z) (z & 0FFh)
+0014   0000             .define HBYTE(z) (z >> 8)
+0015   0000             
+0016   0000             .define SPROC TCALL 0
+0017   0000             .define SPROC2 SPROC
+0018   0000             
+0019   0000             ;*****************************************************************************
+0020   0000             ; PROTOCOL
+0021   0000             ;
+0022   0000             ; mm = mimic data
+0023   0000             ; id = message id
+0024   0000             ; vv = validation data (not previous value)
+0025   0000             ; v1 = nonzero validation data (not previous value)
+0026   0000             ;
+0027   0000             ; SPC PORTS:
+0028   0000             ; PORT0 = RESERVED
+0029   0000             ; PORT1 = COMMUNICATION
+0030   0000             ; PORT2 = STATUS:
+0031   0000             ;   MSB fep-cccc LSB
+0032   0000             ;   f = module volume fade[out/in] in progress
+0033   0000             ;   e = end of module reached (restarted from beginning)
+0034   0000             ;   p = module is playing (0 means not playing or preparing...)
+0035   0000             ;   cccc = cue, incremented on SF1 pattern effect
+0036   0000             ; PORT3 = MODULE POSITION
+0037   0000             ; 
+0038   0000             ; NAME	ID	DESC
+0039   0000             ;--------------------------------------------------------
+0040   0000             ; LOAD	00	Upload Module
+0041   0000             ; 
+0042   0000             ; >> id vv -- --	send message
+0043   0000             ; << -- mm -- --	message confirmed
+0044   0000             ;
+0045   0000             ; >> -- v1 DD DD	transfer module
+0046   0000             ; << -- mm -- --	DDDD = data, loop until all words xferred
+0047   0000             ;
+0048   0000             ; >> -- 00 DD DD	final word
+0049   0000             ; << -- mm -- --	okay proceed to transfer sources...
+0050   0000             ;
+0051   0000             ; for each entry in SOURCE_LIST:
+0052   0000             ;
+0053   0000             ; >> 01 vv LL LL	send loop point
+0054   0000             ; << -- mm -- --	loop point saved
+0055   0000             ; >> -- v1 DD DD	transfer source data
+0056   0000             ; << -- mm -- --	DDDD = data, loop unti all words xferred
+0057   0000             ;
+0058   0000             ; >> -- 00 DD DD	transfer last word
+0059   0000             ; << -- mm -- --	
+0060   0000             ;
+0061   0000             ; [loop until all needed sources are transferred]
+0062   0000             ;
+0063   0000             ; >> 00 vv -- --	terminate transfer
+0064   0000             ; << -- mm -- --
+0065   0000             ;
+0066   0000             ; notes:
+0067   0000             ;   this function resets the memory system
+0068   0000             ;   all sound effects will become invalid
+0069   0000             ; 
+0070   0000             ;   after final sample transferred the system may
+0071   0000             ;   be halted for some time to setup the echo delay.
+0072   0000             ;--------------------------------------------------------
+0073   0000             ; LOADE	01	Upload Sound Effect
+0074   0000             ;
+0075   0000             ; >> id vv LL LL	send message
+0076   0000             ; << -- mm -- --	source registered, ready for data
+0077   0000             ;
+0078   0000             ; >> -- v1 DD DD	transfer source data
+0079   0000             ; << -- mm -- --	loop until all words xferred
+0080   0000             ;
+0081   0000             ; >> -- 00 DD DD	send last word
+0082   0000             ; << -- mm -- --	okay, ready for playback
+0083   0000             ;
+0084   0000             ; sound effects are always one-shot
+0085   0000             ;  LLLL is not used (or maybe it is...........)
+0086   0000             ;--------------------------------------------------------
+0087   0000             ; VOL	02	Set Master Volume
+0088   0000             ;
+0089   0000             ; >> id vv VV --
+0090   0000             ; << -- mm -- --
+0091   0000             ;
+0092   0000             ; VV = master volume level (0..127)
+0093   0000             ;--------------------------------------------------------
+0094   0000             ; PLAY	03	Play Module
+0095   0000             ;
+0096   0000             ; >> id vv -- pp
+0097   0000             ; << -- mm -- --
+0098   0000             ;
+0099   0000             ; pp = start position
+0100   0000             ;--------------------------------------------------------
+0101   0000             ; STOP	04	Stop Playback
+0102   0000             ;
+0103   0000             ; >> id vv -- --
+0104   0000             ; << -- mm -- --
+0105   0000             ;--------------------------------------------------------
+0106   0000             ; MVOL	05	Set Module Volume
+0107   0000             ;
+0108   0000             ; >> id vv -- VV
+0109   0000             ; << -- mm -- --
+0110   0000             ;
+0111   0000             ; VV = 0..255 new module volume scale
+0112   0000             ;--------------------------------------------------------
+0113   0000             ; FADE	06	Fade Module Volume
+0114   0000             ;
+0115   0000             ; >> id vv tt VV
+0116   0000             ; << -- mm -- --
+0117   0000             ;
+0118   0000             ; VV = 0..255 target volume level
+0119   0000             ; tt = fade speed (added every m tick)
+0120   0000             ;--------------------------------------------------------
+0121   0000             ; RES	07	Reset
+0122   0000             ;
+0123   0000             ; >> id vv -- --
+0124   0000             ; 
+0125   0000             ; <driver unloaded>
+0126   0000             ;--------------------------------------------------------
+0127   0000             ; FX	08	Play Sound Effect
+0128   0000             ;
+0129   0000             ; >> id vv vp sh
+0130   0000             ; << -- mm -- --
+0131   0000             ; 
+0132   0000             ; s = sample index
+0133   0000             ; h = pitch ( 8 = 32000hz, h = pitch height >> 9 )
+0134   0000             ; v = volume (15 = max)
+0135   0000             ; p = panning (8 = center)
+0136   0000             ;--------------------------------------------------------
+0137   0000             ; TEST	09	Test function
+0138   0000             ;
+0139   0000             ; >> id vv -- --
+0140   0000             ; << -- mm -- --
+0141   0000             ;--------------------------------------------------------
+0142   0000             ; SSIZE	0A	Set sound region size
+0143   0000             ;
+0144   0000             ; >> id vv -- SS
+0145   0000             ; << -- mm -- --
+0146   0000             ;
+0147   0000             ; SS = size of sound region (SS*256 bytes)
+0148   0000             ;--------------------------------------------------------
+0149   0000             ; STREAM	Update digital stream
+0150   0000             ;
+0151   0000             ; previously written port data must be buffered.
+0152   0000             ;
+0153   0000             ; >> 8m -- -- --	send update flag (8m = previous data OR 80H)
+0154   0000             ; [wait for spc, this is a high-priority signal]
+0155   0000             ; << 80 -- -- --	receive ready signal
+0156   0000             ;
+0157   0000             ; >> nn mm vp hh	nn = number of blocks (9 bytes) to transfer (1..28)
+0158   0000             ; << nn -- -- --
+0159   0000             ;
+0160   0000             ; if mm <> 0 then
+0161   0000             ;   [new sample, reset sound]
+0162   0000             ;   v = volume
+0163   0000             ;   p = panning
+0164   0000             ;   hh = pitch height H byte (6 bits)
+0165   0000             ;
+0166   0000             ; length should be significantly larger than required on
+0167   0000             ; initial transfer (mm<>0)
+0168   0000             ;
+0169   0000             ; [xx is a counter starting with 'nn' written to port0 earlier]
+0170   0000             ; [add 1 before first message]
+0171   0000             ;
+0172   0000             ; transfer 1 chunk:
+0173   0000             ;  loop 3 times:
+0174   0000             ;   >> xx D2 D0 D1
+0175   0000             ;   << xx -- -- --
+0176   0000             ;   >> xx D5 D3 D4
+0177   0000             ;   << xx -- -- --
+0178   0000             ;   >> xx D8 D6 D7
+0179   0000             ;   << xx -- -- --
+0180   0000             ; loop nn times
+0181   0000             ;
+0182   0000             ;(EXIT):
+0183   0000             ; [spc will resume operation after a short period]
+0184   0000             ; [port status must be restored before the spc resumes (approx. 45us)]
+0185   0000             ; >> pp pp pp pp	restore port status
+0186   0000             ;*****************************************************************************
+0187   0000             
+0188   0000             ;*****************************************************************************
+0189   0000             ; dsp registers		; Nocash SNES Specs
+0190   0000             ;*****************************************************************************
+0191   0000             DSPV_VOL	=00h	; Left volume for Voice 0..7 (R/W)
+0192   0000             DSPV_VOLR	=01h	; Right volume for Voice 0..7 (R/W)
+0193   0000             DSPV_PL		=02h	; Pitch scaler for Voice 0..7, lower 8bit (R/W)
+0194   0000             DSPV_PH		=03h	; Pitch scaler for Voice 0..7, upper 6bit (R/W)
+0195   0000             DSPV_SRCN	=04h	; Source number for Voice 0..7 (R/W)
+0196   0000             DSPV_ADSR1	=05h	; ADSR settings for Voice 0..7, lower 8bit (R/W)
+0197   0000             DSPV_ADSR2	=06h	; ADSR settings for Voice 0..7, upper 8bit (R/W
+0198   0000             DSPV_GAIN	=07h	; Gain settings for Voice 0..7 (R/W)
+0199   0000             DSPV_ENVX	=08h	; Current envelope value for Voice 0..7 (R)
+0200   0000             DSPV_OUTX	=09h	; Current sample value for Voice 0..7 (R) 
+0201   0000             
+0202   0000             ;		=0Ah	; Unused (8 bytes of general-purpose RAM) (R/W)
+0203   0000             ;		=1Ah	; These registers seem to have no function at all.
+0204   0000             ;		=2Ah	; Data written to them seems to have no effect on
+0205   0000             ;		=3Ah	; sound output, the written values seem to be left
+0206   0000             ;		=4Ah	; intact (ie. they aren't overwritten by voice or
+0207   0000             ;		=5Ah	; or echo status information).
+0208   0000             ;		=6Ah	;
+0209   0000             ;		=7Ah	;
+0210   0000             
+0211   0000             ;		=0Bh	; Unused (8 bytes of general-purpose RAM) (R/W)
+0212   0000             ;		=1Bh	;
+0213   0000             ;		=2Bh	;
+0214   0000             ;		=3Bh	;
+0215   0000             ;		=4Bh	;
+0216   0000             ;		=5Bh	;
+0217   0000             ;		=6Bh	;
+0218   0000             ;		=7Bh	;
+0219   0000             
+0220   0000             			; volume: (negative = phase inverted)
+0221   0000             DSP_MVOL	=0Ch	; Left channel master volume (R/W)  :: (-127..+127) -128 causes
+0222   0000             DSP_MVOLR	=1Ch	; Right channel master volume (R/W) :: multiply overflows
+0223   0000             DSP_EVOL	=2Ch	; Left channel echo volume  :: (-128..+127) -128 can be safely
+0224   0000             DSP_EVOLR	=3Ch	; Right channel echo volume :: used
+0225   0000             DSP_KON		=4Ch	; Flags for Voice 0..7 (0=No change, 1=Key On) (W)
+0226   0000             DSP_KOF		=5Ch	; Flags for Voice 0..7 (0=No change, 1=Key Off) (R/W)
+0227   0000             DSP_FLG		=6Ch	; Reset, Mute, Echo-Write flags and Noise Clock (R/W)
+0228   0000             			; 0-4 Noise frequency (0=Stop, 1=16Hz, 2=21Hz, ..., 1Eh=16kHz, 1Fh=32kHz)
+0229   0000             			; 5   Echo Buffer Writes (0=Enable, 1=Disable) (doesn't disable echo-reads)
+0230   0000             			; 6   Mute Amplifier     (0=Normal, 1=Mute) (doesn't stop internal processing)
+0231   0000             			; 7   Soft Reset         (0=Normal, 1=KeyOff all voices, and set Envelopes=0)
+0232   0000             DSP_ENDX	=7Ch	; Voice End Flags for Voice 0..7 (R) (W=Ack)
+0233   0000             
+0234   0000             DSP_EFB		=0Dh	; Echo feedback volume (R/W)
+0235   0000             ;		=1Dh	; Unused (1 byte of general-purpose RAM) (R/W)
+0236   0000             DSP_PMON	=2Dh	; Pitch Modulation Enable Flags for Voice 1..7 (R/W) (see notes below)
+0237   0000             DSP_NON		=3Dh	; Noise Enable Flags for Voice 0..7 (R/W)
+0238   0000             DSP_EON		=4Dh	; Echo Enable Flags for Voice 0..7 (R/W)
+0239   0000             DSP_DIR		=5Dh	; Sample table address (R/W)
+0240   0000             			; 0-7   Sample Table Address (in 256-byte steps) (indexed via DSPV_SRCN)
+0241   0000             			; The table can contain up to 256 four-byte entries (max 1Kbyte). Each
+0242   0000             			; entry is: 
+0243   0000             			; Byte 0-1  BRR Start Address (used when voice is Keyed-ON)
+0244   0000             			; Byte 2-3  BRR Restart/Loop Address (used when end of BRR data reached)
+0245   0000             			; Changing DIR or VxSRCN has no immediate effect (until/unless voices
+0246   0000             			; are newly Looped or Keyed-ON).
+0247   0000             DSP_ESA		=6Dh	; Echo ring buffer address (R/W)
+0248   0000             DSP_EDL		=7Dh	; Echo delay (ring buffer size) (R/W)
+0249   0000             
+0250   0000             ;		=0Eh	; Unused (8 bytes of general-purpose RAM) (R/W)
+0251   0000             ;		=1Eh	;
+0252   0000             ;		=2Eh	;
+0253   0000             ;		=3Eh	;
+0254   0000             ;		=4Eh	;
+0255   0000             ;		=5Eh	;
+0256   0000             ;		=6Eh	;
+0257   0000             ;		=7Eh	;
+0258   0000             
+0259   0000             DSP_C0		=0Fh	; Echo FIR filter coefficient 0..7 (R/W)
+0260   0000             DSP_C1		=1Fh	; Value -128 should not be used for any of the FIRx
+0261   0000             DSP_C2		=2Fh	; registers (to avoid multiply overflows). To avoid
+0262   0000             DSP_C3		=3Fh	; additional overflows: The sum of POSITIVE values
+0263   0000             DSP_C4		=4Fh	; in the first seven registers (FIR0..FIR6) should
+0264   0000             DSP_C5		=5Fh	; not exceed +7Fh, and the sum of NEGATIVE values
+0265   0000             DSP_C6		=6Fh	; should not exceed -7Fh. The sum of all eight
+0266   0000             DSP_C7		=7Fh	; registers (FIR0..FIR7) should be usually around +80h
+0267   0000             
+0268   0000             ;-----------------------;
+0269   0000             
+0270   0000             ; 2Dh - PMON - Pitch Modulation Enable Flags for Voice 1..7 (R/W)
+0271   0000             ; Pitch modulation allows to generate "Frequency Sweep" effects by mis-using the
+0272   0000             ; amplitude from channel (x-1) as pitch factor for channel (x).
+0273   0000             ;  0    Not used
+0274   0000             ;  1-7  Flags for Voice 1..7 (0=Normal, 1=Modulate by Voice 0..6)
+0275   0000             ; For example, output a very loud 1Hz sine-wave on channel 4 (with Direct
+0276   0000             ; Gain=40h, and with Left/Right volume=0; unless you actually want to output it
+0277   0000             ; to the speaker). Then additionally output a 2kHz sine wave on channel 5 with
+0278   0000             ; PMON.Bit5 set. The "2kHz" sound should then repeatedly sweep within 1kHz..3kHz
+0279   0000             ; range (or, for a more decent sweep in 1.8kHz..2.2kHz range, drop the Gain
+0280   0000             ; level of channel 4)
+0281   0000             
+0282   0000             ; x5h/x6h - ADSR 1/2
+0283   0000             ;  0-3   4bit Attack rate   ;Rate=N*2+1, Step=+32 (or Step=+1024 when Rate=31)
+0284   0000             ;  4-6   3bit Decay rate    ;Rate=N*2+16, Step=-(((Level-1) SAR 8)+1)
+0285   0000             ;  7     ADSR/Gain Select   ;0=Use VxGAIN, 1=Use VxADSR (Attack/Decay/Sustain)
+0286   0000             ;  8-12  5bit Sustain rate  ;Rate=N, Step=-(((Level-1) SAR 8)+1)
+0287   0000             ;  13-15 3bit Sustain level ;Boundary=(N+1)*100h
+0288   0000             ;  N/A   0bit Release rate  ;Rate=31, Step=-8 (or Step=-800h when BRR-end)
+0289   0000             
+0290   0000             ; Echo Overflows
+0291   0000             ; Setting FIRx, EFB, or EVOLx to -128 does probably cause multiply overflows?
+0292   0000             
+0293   0000             ADSR		=80h
+0294   0000             FLG_NOISE	=0E0h
+0295   0000             FLG_RESET	=80h
+0296   0000             FLG_MUTE	=40h
+0297   0000             FLG_ECEN	=20h
+0298   0000             
+0299   0000             #define SETDSP(xx,yy) mov SPC_DSPA, #xx\ mov SPC_DSPD, #yy
+0300   0000             
+0301   0000             
+0302   0000             ;*****************************************************************************
+0303   0000             ; module defs
+0304   0000             ;*****************************************************************************
+0305   0000             
+0306   0000             
+0307   0000             MOD_IV		=00H	; INITIAL VOLUME
+0308   0000             MOD_IT		=01H	; INITIAL TEMPO
+0309   0000             MOD_IS		=02H	; INITIAL SPEED
+0310   0000             MOD_CV		=03H	; INITIAL CHANNEL VOLUME
+0311   0000             MOD_CP		=0BH	; INITIAL CHANNEL PANNING
+0312   0000             MOD_EVOL	=13H	; ECHO VOLUME (LEFT)
+0313   0000             MOD_EVOLR	=14H	; ECHO VOLUME (RIGHT)
+0314   0000             MOD_EDL		=15H	; ECHO DELAY
+0315   0000             MOD_EFB		=16H	; ECHO FEEDBACK
+0316   0000             MOD_EFIR	=17H	; ECHO FIR COEFS
+0317   0000             MOD_EON		=1FH	; ECHO ENABLE BITS
+0318   0000             MOD_SEQU	=20H	; SEQUENCE
+0319   0000             MOD_PTABLE_L	=0E8H	; PATTERN TABLE
+0320   0000             MOD_PTABLE_H	=128H	; 
+0321   0000             MOD_ITABLE_L	=168H	; INSTRUMENT TABLE
+0322   0000             MOD_ITABLE_H	=1A8H	; 
+0323   0000             MOD_STABLE_L	=1E8H	; SAMPLE TABLE
+0324   0000             MOD_STABLE_H	=228H	;
+0325   0000             
+0326   0000             INS_FADEOUT	=00H
+0327   0000             INS_SAMPLE	=01H
+0328   0000             INS_GVOL	=02H
+0329   0000             INS_SETPAN	=03H
+0330   0000             INS_ENVLEN	=04H
+0331   0000             INS_ENVSUS	=05H
+0332   0000             INS_ENVLOOPST	=06H
+0333   0000             INS_ENVLOOPEND	=07H
+0334   0000             INS_ENVDATA	=08H
+0335   0000             
+0336   0000             SAMP_DVOL	=00H
+0337   0000             SAMP_GVOL	=01H
+0338   0000             SAMP_PITCHBASE	=02H
+0339   0000             SAMP_DINDEX	=04H
+0340   0000             SAMP_SETPAN	=05H
+0341   0000             
+0342   0000             
+0343   0000             ;*****************************************************************************
+0344   0000             ; 0000 - 00EF   ; Zero Page
+0345   0000             ;*****************************************************************************
+0346   0000             
+0347   0000             
+0348   0000             xfer_address:	.block 2
+0349   0002             m0:		.block 2
+0350   0004             m1:		.block 2
+0351   0006             m2:		.block 2
+0352   0008             m3:		.block 2
+0353   000A             m4:		.block 2
+0354   000C             m5:		.block 2
+0355   000E             m6:		.block 2
+0356   0010             next_sample:	.block 1
+0357   0011             comms_v:	.block 1 ;communication variable
+0358   0012             
+0359   0012             evol_l:		.block 1
+0360   0013             evol_r:		.block 1
+0361   0014             
+0362   0014             module_vol:	.block 1 ;module volume
+0363   0015             module_fadeT:	.block 1 ;module volume fade target
+0364   0016             module_fadeR:	.block 1 ;module volume fade rate
+0365   0017             module_fadeC:	.block 1 ;timer counter
+0366   0018             
+0367   0018             mod_tick:	.block 1
+0368   0019             mod_row:	.block 1
+0369   001A             mod_position:	.block 1
+0370   001B             mod_bpm:	.block 1
+0371   001C             mod_speed:	.block 1
+0372   001D             mod_active:	.block 1
+0373   001E             mod_gvol:	.block 1
+0374   001F             
+0375   001F             patt_addr:	.block 2
+0376   0021             patt_rows:	.block 1
+0377   0022             pattjump_enable: .block 1
+0378   0023             pattjump_index:	.block 1
+0379   0024             patt_update:	.block 1 ;PATTERN UPDATE FLAGS
+0380   0025             
+0381   0025             ch_start:
+0382   0025             ch_pitch_l:	.block 8
+0383   002D             ch_pitch_h:	.block 8
+0384   0035             ch_volume:	.block 8 ;0..64
+0385   003D             ch_cvolume:	.block 8 ;0..128 (IT = 0..64)
+0386   0045             ch_panning:	.block 8 ;0..64
+0387   004D             ch_cmem:	.block 8
+0388   0055             ch_note:	.block 8
+0389   005D             ch_instr:	.block 8
+0390   0065             ch_vcmd:	.block 8
+0391   006D             ch_command:	.block 8
+0392   0075             ch_param:	.block 8
+0393   007D             ch_sample:	.block 8
+0394   0085             ch_flags:	.block 8
+0395   008D             ch_env_y_l:	.block 8
+0396   0095             ch_env_y_h:	.block 8
+0397   009D             ch_env_node:	.block 8
+0398   00A5             ch_env_tick:	.block 8
+0399   00AD             ch_env_vib:	.block 8
+0400   00B5             ch_vib_wav:	.block 8 ; vibrato waveforms
+0401   00BD             ch_fadeout:	.block 8
+0402   00C5             ch_ad:		.block 8
+0403   00CD             ch_sr:		.block 8
+0404   00D5             ch_end:
+0405   00D5             
+0406   00D5             default_ramp_pos:	=40h
+0407   00D5             default_ramp_neg:	=0bfh
+0408   00D5             default_sq_pos:		=40h
+0409   00D5             default_sq_neg:		=00h
+0410   00D5             
+0411   00D5             ; channel processing variables:
+0412   00D5             t_hasdata:	.block 1
+0413   00D6             t_sampoff:	.block 1
+0414   00D7             t_volume:	.block 1
+0415   00D8             t_panning:	.block 1
+0416   00D9             t_pitch:
+0417   00D9             t_pitch_l:	.block 1
+0418   00DA             t_pitch_h:	.block 1
+0419   00DB             t_flags:	.block 1
+0420   00DC             t_env:		.block 1 ; 0..255
+0421   00DD             
+0422   00DD             p_instr:	.block 2
+0423   00DF             
+0424   00DF             STATUS:		.block 1
+0425   00E0             STATUS_P	=32
+0426   00E0             STATUS_E	=64
+0427   00E0             STATUS_F	=128
+0428   00E0             
+0429   00E0             debug:		.block 1
+0430   00E1             
+0431   00E1             CF_NOTE		=1
+0432   00E1             CF_INSTR	=2
+0433   00E1             CF_VCMD		=4
+0434   00E1             CF_CMD		=8
+0435   00E1             CF_KEYON	=16
+0436   00E1             CF_FADE		=32
+0437   00E1             CF_SURROUND	=64
+0438   00E1             
+0439   00E1             TF_START	=80H
+0440   00E1             TF_DELAY	=2
+0441   00E1             
+0442   00E1             
+0443   00E1             ;---------------------------
+0444   00E1             ; sound effects
+0445   00E1             ;---------------------------
+0446   00E1             
+0447   00E1             sfx_mask:	.block 1
+0448   00E2             sfx_next:	.block 1
+0449   00E3             
+0450   00E3             ;-----------------------------------------------------------------------------
+0451   00E3             
+0452   00E3             stream_a:		.block 1
+0453   00E4             stream_write:		.block 2
+0454   00E6             stream_rate:		.block 1
+0455   00E7             stream_volL:		.block 1
+0456   00E8             stream_volR:		.block 1
+0457   00E9             stream_gain:		.block 1
+0458   00EA             stream_initial:		.block 1
+0459   00EB             stream_size:		.block 1
+0460   00EC             stream_region:		.block 1
+0461   00ED             
+0462   00ED             
+0463   00ED             ;*****************************************************************************
+0464   00ED             ; 00F0 - 00FF	; Registers
+0465   00ED             ;*****************************************************************************
+0466   00ED             
+0467   00ED             
+0468   00ED             SPC_TEST	=0F0h ; Testing functions (W)                                  0Ah
+0469   00ED             SPC_CONTROL	=0F1h ; Timer, I/O and ROM Control (W)                         80h
+0470   00ED             		      ; bits 0-2 timer enables (1=on), bits 4-5 are I/O port clear bits (11=clear all)
+0471   00ED             SPC_DSP		=0F2h ; DSP Register Index (R/W)
+0472   00ED             SPC_DSPA	=0F2h ; 
+0473   00ED             SPC_DSPD	=0F3h ; DSP Register Data (R/W)
+0474   00ED             SPC_PORT0	=0F4h ; CPU Input and Output Register 0 (R and W)      R=00h,W=00h
+0475   00ED             SPC_PORT1	=0F5h ; CPU Input and Output Register 1 (R and W)      R=00h,W=00h
+0476   00ED             SPC_PORT2	=0F6h ; CPU Input and Output Register 2 (R and W)      R=00h,W=00h
+0477   00ED             SPC_PORT3	=0F7h ; CPU Input and Output Register 3 (R and W)      R=00h,W=00h
+0478   00ED             SPC_AUXPORT4	=0F8h ; External I/O Port P4 (S-SMP Pins 34-27) (R/W) (unused) FFh
+0479   00ED             SPC_AUXPORT5	=0F9h ; External I/O Port P5 (S-SMP Pins 25-18) (R/W) (unused) FFh
+0480   00ED             SPC_TIMER0	=0FAh ; Timer 0 Divider (for 8000Hz clock source) (W)
+0481   00ED             SPC_TIMER1	=0FBh ; Timer 1 Divider (for 8000Hz clock source) (W)
+0482   00ED             SPC_TIMER2	=0FCh ; Timer 2 Divider (for 64000Hz clock source) (W)
+0483   00ED             SPC_COUNTER0	=0FDh ; Timer 0 Output (R)
+0484   00ED             SPC_COUNTER1	=0FEh ; Timer 1 Output (R)
+0485   00ED             SPC_COUNTER2	=0FFh ; Timer 2 Output (R)
+0486   00ED             
+0487   00ED             DEBUG_P0 = SPC_PORT0
+0488   00ED             DEBUG_P2 = SPC_PORT2
+0489   00ED             ;-----------------------------------------------------------------------------
+0490   00ED             
+0491   00ED             
+0492   00ED             ;*****************************************************************************
+0493   00ED             ; 0190 - 01FF   ; Page 1, stack space
+0494   00ED             ;*****************************************************************************
+0495   00ED             ;-----------------------------------------------------------------------------
+0496   00ED             
+0497   00ED             
+0498   00ED             ;*****************************************************************************
+0499   00ED             ; 0200 - 03FF
+0500   00ED             ;*****************************************************************************
+0501   00ED             
+0502   00ED             SampleDirectory		=0200h	; 256 bytes	(64-sample directory)
+0503   00ED             EffectDirectory		=0300h	; 16*4 bytes	(16 sound effects)
+0504   00ED             PatternMemory		=0340h	; 16*8 bytes
+0505   00ED             StreamAddress		=03c0h	; 4 bytes       (streaming buffer address)
+0506   00ED             
+0507   00ED             ; [extra ram]
+0508   00ED             
+0509   00ED             ;*****************************************************************************
+0510   03C4             .org 3c4h	; Program
+0511   03C4             ;*****************************************************************************
+0512   03C4             
+0513   03C4             ;--------------------------------------------------------
+0514   03C4             main:
+0515   03C4             ;--------------------------------------------------------
+0516   03C4             
+0517   03C4 CD 00       	mov	x, #0
+0518   03C6 E8 00       	mov	a, #0
+0519   03C8             _clrmem:
+0520   03C8 AF          	mov	(X)+, a
+0521   03C9 C8 F0       	cmp	x, #0F0h
+0522   03CB D0 FB       	bne	_clrmem
+0523   03CD             
+0524   03CD 8F 00 F5    	mov	SPC_PORT1, #0		; reset some ports
+0525   03D0 8F 00 F6    	mov	SPC_PORT2, #0		;
+0526   03D3 8F 00 F7    	mov	SPC_PORT3, #0		;
+0527   03D6 8F 00 F1    	mov	SPC_CONTROL, #0		; reset control
+0528   03D9 8F FF FB    	mov	SPC_TIMER1, #255	; reset fade timer
+0529   03DC 8F FF 14    	mov	module_vol, #255	; reset mvol
+0530   03DF 8F FF 15    	mov	module_fadeT, #255	; 
+0531   03E2             					;----------------
+0532   03E2 3F 31 04    	call	ResetSound		;
+0533   03E5             					;----------------
+0534   03E5 8F 0C F2    	mov	SPC_DSPA, #DSP_MVOL	; reset main volume
+0535   03E8 8F 50 F3    	mov	SPC_DSPD, #80		;
+0536   03EB 8F 1C F2    	mov	SPC_DSPA, #DSP_MVOLR	;
+0537   03EE 8F 50 F3    	mov	SPC_DSPD, #80		;
+0538   03F1             					;----------------
+0539   03F1 8F 5D F2    	mov	SPC_DSPA, #DSP_DIR	; set source dir
+0540   03F4 8F 02 F3    	mov	SPC_DSPD, #SampleDirectory >> 8
+0541   03F7             
+0542   03F7 3F 27 04    	call	ResetMemory
+0543   03FA 3F 33 17    	call	Streaming_Init
+0544   03FD             
+0545   03FD 8F 06 F1    	mov	SPC_CONTROL, #%110
+0546   0400             
+0547   0400             ;----------------------------------------------------------------------
+0548   0400 2F 08       	bra	patch1			; patch for it->spc conversion
+0549   0402             					;
+0550   0402 3F 33 06    	call	Module_Stop		;
+0551   0405 E8 00       	mov	a, #0			;
+0552   0407 3F 3D 06    	call	Module_Start		;
+0553   040A             patch1:					;
+0554   040A             ;----------------------------------------------------------------------
+0555   040A             
+0556   040A             ;--------------------------------------------------------
+0557   040A             main_loop:
+0558   040A             ;--------------------------------------------------------
+0559   040A             
+0560   040A 01          	SPROC2
+0561   040B 3F 5F 04    	call	ProcessComms
+0562   040E 01          	SPROC
+0563   040F 3F CE 06    	call	ProcessFade
+0564   0412 01          	SPROC
+0565   0413 3F 04 07    	call	Module_Update
+0566   0416 01          	SPROC
+0567   0417 3F 20 04    	call	UpdatePorts
+0568   041A 01          	SPROC
+0569   041B 3F 25 17    	call	SFX_Update
+0570   041E 2F EA       	bra	main_loop
+0571   0420             
+0572   0420             ;--------------------------------------------------------
+0573   0420             UpdatePorts:
+0574   0420             ;--------------------------------------------------------
+0575   0420 FA DF F6    	mov	SPC_PORT2, STATUS
+0576   0423 FA 1A F7    	mov	SPC_PORT3, mod_position
+0577   0426 6F          	ret
+0578   0427             
+0579   0427             ;--------------------------------------------------------
+0580   0427             ResetMemory:
+0581   0427             ;--------------------------------------------------------
+0582   0427 8F F2 00    	mov	xfer_address, #MODULE & 0FFh	; reset transfer address
+0583   042A 8F 18 01    	mov	xfer_address+1, #MODULE >> 8	;
+0584   042D 8F 00 10    	mov	next_sample, #0			; reset sample target
+0585   0430 6F          	ret
+0586   0431             
+0587   0431             ;--------------------------------------------------------
+0588   0431             ResetSound:
+0589   0431             ;--------------------------------------------------------
+0590   0431 8F 5C F2    	SETDSP( DSP_KOF, 0FFh );
+0590   0434 8F FF F3    
+0591   0437 8F 6C F2    	SETDSP( DSP_FLG, FLG_ECEN );
+0591   043A 8F 20 F3    
+0592   043D 8F 2D F2    	SETDSP( DSP_PMON, 0 );
+0592   0440 8F 00 F3    
+0593   0443 8F 2C F2    	SETDSP( DSP_EVOL, 0 );
+0593   0446 8F 00 F3    
+0594   0449 8F 3C F2    	SETDSP( DSP_EVOLR, 0 );
+0594   044C 8F 00 F3    
+0595   044F 8F 3D F2    	SETDSP( DSP_NON, 00h );
+0595   0452 8F 00 F3    
+0596   0455 8F 5C F2    	SETDSP( DSP_KOF, 000h ); this is weird
+0596   0458 8F 00 F3    
+0597   045B             
+0598   045B 8F 00 E1    	mov	sfx_mask, #0
+0599   045E 6F          	ret
+0600   045F             
+0601   045F             ;--------------------------------------------------------
+0602   045F             ProcessComms:
+0603   045F             ;--------------------------------------------------------
+0604   045F 69 F5 11    	cmp	comms_v, SPC_PORT1	; test for command
+0605   0462 D0 01       	bne	_new_message		;
+0606   0464 6F          	ret				; <no message>
+0607   0465             _new_message:
+0608   0465 FA F5 11    	mov	comms_v, SPC_PORT1	; copy V
+0609   0468 E4 F4       	mov	a, SPC_PORT0		; jump to message
+0610   046A 00          	nop				; verify data
+0611   046B 64 F4       	cmp	a, SPC_PORT0		;
+0612   046D D0 F6       	bne	_new_message		;
+0613   046F 28 7F       	and	a, #127			; mask 7 bits
+0614   0471 1C          	asl	a			;
+0615   0472 5D          	mov	x, a			;
+0616   0473 1F 7A 04    	jmp	[CommandTable+x]	;'
+0617   0476             ;--------------------------------------------------------
+0618   0476             
+0619   0476             CommandRet:
+0620   0476 FA 11 F5    	mov	SPC_PORT1, comms_v
+0621   0479 6F          	ret
+0622   047A             
+0623   047A             ;--------------------------------------------------------
+0624   047A             CommandTable:
+0625   047A             ;--------------------------------------------------------
+0626   047A C6 04       	.word	CMD_LOAD		; 00h - load module
+0627   047C 33 05       	.word	CMD_LOADE		; 01h - load sound
+0628   047E B5 04       	.word	CMD_VOL			; 02h - set volume
+0629   0480 54 05       	.word	CMD_PLAY		; 03h - play
+0630   0482 B0 04       	.word	CMD_STOP		; 04h - stop
+0631   0484 A8 04       	.word	CMD_MVOL		; 05h - set module volume
+0632   0486 9A 04       	.word	CMD_FADE		; 06h - fade module volume
+0633   0488 65 05       	.word	CMD_RES			; 07h - reset
+0634   048A 72 05       	.word	CMD_FX			; 08h - sound effect
+0635   048C B3 04       	.word	CMD_NULL		; 09h - test
+0636   048E 90 04       	.word	CMD_SSIZE		; 0Ah - set stream size
+0637   0490             	;.word	CMD_PDS			; 0Ah - play streamed sound
+0638   0490             	;.word	CMD_DDS			; 0Bh - disable digital stream
+0639   0490             
+0640   0490             ;********************************************************
+0641   0490             CMD_SSIZE:
+0642   0490             ;********************************************************
+0643   0490 3F 33 06    	call	Module_Stop
+0644   0493 E4 F7       	mov	a, SPC_PORT3
+0645   0495 3F 43 17    	call	Streaming_Resize
+0646   0498 2F DC       	bra	CommandRet
+0647   049A             
+0648   049A             ;********************************************************
+0649   049A             CMD_FADE:
+0650   049A             ;********************************************************
+0651   049A 18 80 DF    	or	STATUS, #STATUS_F
+0652   049D FA DF F6    	mov	SPC_PORT2, STATUS
+0653   04A0 FA F7 15    	mov	module_fadeT, SPC_PORT3
+0654   04A3 FA F6 16    	mov	module_fadeR, SPC_PORT2
+0655   04A6 2F CE       	bra	CommandRet
+0656   04A8             
+0657   04A8             ;********************************************************
+0658   04A8             CMD_MVOL:
+0659   04A8             ;********************************************************
+0660   04A8 FA F7 14    	mov	module_vol, SPC_PORT3
+0661   04AB FA F7 15    	mov	module_fadeT, SPC_PORT3
+0662   04AE 2F C6       	bra	CommandRet
+0663   04B0             
+0664   04B0             ;********************************************************
+0665   04B0             CMD_STOP:
+0666   04B0             ;********************************************************
+0667   04B0 3F 33 06    	call	Module_Stop
+0668   04B3             CMD_NULL:	;*
+0669   04B3 2F C1       	bra	CommandRet
+0670   04B5             
+0671   04B5             ;********************************************************
+0672   04B5             CMD_VOL:
+0673   04B5             ;********************************************************
+0674   04B5 E4 F6       	mov	a, SPC_PORT2
+0675   04B7 8F 0C F2    	mov	SPC_DSPA, #DSP_MVOL
+0676   04BA C4 F3       	mov	SPC_DSPD, a
+0677   04BC 8F 1C F2    	mov	SPC_DSPA, #DSP_MVOLR
+0678   04BF C4 F3       	mov	SPC_DSPD, a
+0679   04C1 3F FE 05    	call	UpdateEchoVolume
+0680   04C4 2F B0       	bra	CommandRet
+0681   04C6             
+0682   04C6             ;********************************************************
+0683   04C6             CMD_LOAD:
+0684   04C6             ;********************************************************
+0685   04C6 3F 33 06    	call	Module_Stop
+0686   04C9 3F 27 04    	call	ResetMemory		; reset memory system
+0687   04CC             	
+0688   04CC 3F 05 05    	call	StartTransfer
+0689   04CF             	
+0690   04CF 8F 00 04    	mov	m1, #0
+0691   04D2             	
+0692   04D2             _wait_for_sourcen:			;
+0693   04D2 69 F5 11    	cmp	comms_v, SPC_PORT1	;
+0694   04D5 F0 FB       	beq	_wait_for_sourcen	;
+0695   04D7 FA F5 11    	mov	comms_v, SPC_PORT1	;
+0696   04DA             	
+0697   04DA 78 00 F4    	cmp	SPC_PORT0, #0		; if p0 != 0:
+0698   04DD F0 0E       	beq	_end_of_sources		; load source
+0699   04DF             					;
+0700   04DF EB 04       	mov	y, m1			;
+0701   04E1 60          	clrc				;
+0702   04E2 98 04 04    	adc	m1, #4			;
+0703   04E5 3F EF 04    	call	RegisterSource		;
+0704   04E8 3F 05 05    	call	StartTransfer		;
+0705   04EB             					;
+0706   04EB 2F E5       	bra	_wait_for_sourcen	; load next source
+0707   04ED             	
+0708   04ED             _end_of_sources:			; if p0 == 0:
+0709   04ED 2F 87       	bra	CommandRet		;
+0710   04EF             
+0711   04EF             ;-------------------------------------------------------------------
+0712   04EF             RegisterSource:
+0713   04EF             ;-------------------------------------------------------------------
+0714   04EF E4 00       	mov	a, xfer_address
+0715   04F1 D6 00 02    	mov	!SampleDirectory+y, a
+0716   04F4 60          	clrc
+0717   04F5 84 F6       	adc	a, SPC_PORT2
+0718   04F7 D6 02 02    	mov	!SampleDirectory+2+y, a
+0719   04FA             	
+0720   04FA E4 01       	mov	a, xfer_address+1
+0721   04FC D6 01 02    	mov	!SampleDirectory+1+y, a
+0722   04FF             	
+0723   04FF 84 F7       	adc	a, SPC_PORT3
+0724   0501 D6 03 02    	mov	!SampleDirectory+3+y, a
+0725   0504             	
+0726   0504 6F          	ret
+0727   0505             	
+0728   0505             ;-------------------------------------------------------------------
+0729   0505             StartTransfer:
+0730   0505             ;-------------------------------------------------------------------
+0731   0505 F8 11       	mov	x, comms_v		; start transfer
+0732   0507 8D 00       	mov	y, #0			;
+0733   0509 D8 F5       	mov	SPC_PORT1, x		;
+0734   050B             	
+0735   050B             ;-------------------------------------------------------------------
+0736   050B             DoTransfer:
+0737   050B             ;-------------------------------------------------------------------
+0738   050B 3E F5       	cmp	x, SPC_PORT1		; wait for data
+0739   050D F0 FC       	beq	DoTransfer		;
+0740   050F F8 F5       	mov	x, SPC_PORT1		;
+0741   0511             					;---------------------------
+0742   0511 E4 F6       	mov	a, SPC_PORT2		; copy data
+0743   0513 D7 00       	mov	[xfer_address]+y, a	;
+0744   0515 E4 F7       	mov	a, SPC_PORT3		;
+0745   0517 D8 F5       	mov	SPC_PORT1, x		;<- reply to snes
+0746   0519 FC          	inc	y			;
+0747   051A D7 00       	mov	[xfer_address]+y, a	;
+0748   051C FC          	inc	y			;
+0749   051D F0 10       	beq	_inc_address		; catch index overflow
+0750   051F C8 00       _cont1:	cmp	x, #0			; loop until x=0
+0751   0521 D0 E8       	bne	DoTransfer		;
+0752   0523             	
+0753   0523 CB 02       	mov	m0, y
+0754   0525 60          	clrc
+0755   0526 89 02 00    	adc	xfer_address, m0
+0756   0529 98 00 01    	adc	xfer_address+1, #0
+0757   052C D8 11       	mov	comms_v, x
+0758   052E 6F          	ret
+0759   052F             
+0760   052F             _inc_address:
+0761   052F AB 01       	inc	xfer_address+1
+0762   0531 2F EC       	bra	_cont1
+0763   0533             	
+0764   0533             ;********************************************************
+0765   0533             CMD_LOADE:
+0766   0533             ;********************************************************
+0767   0533 E4 00       	mov	a, xfer_address
+0768   0535 EB 10       	mov	y, next_sample
+0769   0537 D6 00 03    	mov	!EffectDirectory+y, a
+0770   053A 60          	clrc
+0771   053B 84 F6       	adc	a, SPC_PORT2
+0772   053D D6 02 03    	mov	!EffectDirectory+2+y, a
+0773   0540             	
+0774   0540 E4 01       	mov	a, xfer_address+1
+0775   0542 D6 01 03    	mov	!EffectDirectory+1+y, a
+0776   0545             	
+0777   0545 84 F7       	adc	a, SPC_PORT3
+0778   0547 D6 03 03    	mov	!EffectDirectory+3+y, a
+0779   054A 60          	clrc	; safety clear for invalid loop points (thanks KungFuFurby)
+0780   054B 98 04 10    	adc	next_sample, #4
+0781   054E 3F 05 05    	call	StartTransfer
+0782   0551             	
+0783   0551 5F 76 04    	jmp	CommandRet
+0784   0554             	
+0785   0554             ;********************************************************
+0786   0554             CMD_PLAY:
+0787   0554             ;********************************************************
+0788   0554 3F 33 06    	call	Module_Stop
+0789   0557 E4 F7       	mov	a, SPC_PORT3
+0790   0559 38 DF DF    	and	STATUS, #~STATUS_P
+0791   055C FA DF F6    	mov	SPC_PORT2, STATUS
+0792   055F FA 11 F5    	mov	SPC_PORT1, comms_v
+0793   0562 5F 3D 06    	jmp	Module_Start
+0794   0565             	
+0795   0565             ;********************************************************
+0796   0565             CMD_RES:
+0797   0565             ;********************************************************
+0798   0565 8F 6C F2    	mov	SPC_DSPA, #DSP_FLG
+0799   0568 8F E0 F3    	mov	SPC_DSPD, #11100000b
+0800   056B 20          	clrp
+0801   056C 8F 80 F1    	mov	SPC_CONTROL, #10000000b ;
+0802   056F 5F C0 FF    	jmp	0FFC0h
+0803   0572             
+0804   0572             ;********************************************************
+0805   0572             CMD_FX:
+0806   0572             ;********************************************************
+0807   0572 BA F6       	movw	ya, SPC_PORT2
+0808   0574 DA 02       	movw	m0, ya
+0809   0576 FA 11 F5    	mov	SPC_PORT1, comms_v
+0810   0579 5F A3 16    	jmp	SFX_Play
+0811   057C             	
+0812   057C             ;********************************************************
+0813   057C             ;CMD_TEST:
+0814   057C             ;********************************************************
+0815   057C             	;SETDSP( 00h, 7fh )
+0816   057C             	;SETDSP( 01h, 7fh )
+0817   057C             	;SETDSP( 02h, 00h )
+0818   057C             	;SETDSP( 03h, 10h )
+0819   057C             	;SETDSP( 04h, 09h )
+0820   057C             	;SETDSP( 05h, 00h )
+0821   057C             	;SETDSP( 06h, 00h )
+0822   057C             	;SETDSP( 07h, 7fh )
+0823   057C             	;SETDSP( 0Ch, 70h )
+0824   057C             	;SETDSP( 1Ch, 70h )
+0825   057C             	;SETDSP( 4Ch, 01h )
+0826   057C             	;jmp	CommandRet
+0827   057C             	
+0828   057C             ;********************************************************
+0829   057C             CMD_DDS:
+0830   057C             ;********************************************************
+0831   057C             ;	call	Streaming_Deactivate
+0832   057C             ;	jmp	CommandRet
+0833   057C             
+0834   057C             
+0835   057C             ;********************************************************
+0836   057C             ; Setup echo...
+0837   057C             ;********************************************************
+0838   057C             SetupEcho:
+0839   057C E5 05 19    	mov	a, !MODULE+MOD_EVOL
+0840   057F F0 76       	beq	_skip_enable_echo
+0841   0581 C4 12       	mov	evol_l, a
+0842   0583 E5 06 19    	mov	a, !MODULE+MOD_EVOLR
+0843   0586 C4 13       	mov	evol_r, a
+0844   0588             
+0845   0588 E5 07 19    	mov	a, !MODULE+MOD_EDL	; ESA = stream_region - EDL*8
+0846   058B 9F          	xcn	a			; max = stream_region -1
+0847   058C 5C          	lsr	a			;
+0848   058D C4 02       	mov	m0, a			;
+0849   058F E4 EC       	mov	a, stream_region	;
+0850   0591 80          	setc				;
+0851   0592 A4 02       	sbc	a, m0			;
+0852   0594 64 EC       	cmp	a, stream_region	;
+0853   0596 D0 01       	bne	_edl_not_ss		;
+0854   0598 9C          	dec	a			;
+0855   0599             _edl_not_ss:				;
+0856   0599 8F 6D F2    	mov	SPC_DSPA, #DSP_ESA	;
+0857   059C C4 F3       	mov	SPC_DSPD, a		;
+0858   059E             
+0859   059E C4 03       	mov	m0+1, a			; clear memory region used by echo
+0860   05A0 8F 00 02    	mov	m0, #0			;
+0861   05A3 E8 00       	mov	a, #0			;
+0862   05A5 8D 00       	mov	y, #0			;
+0863   05A7             _clearmem:				;
+0864   05A7 D7 02       	mov	[m0]+y, a		;
+0865   05A9 FC          	inc	y			;
+0866   05AA D0 FB       	bne	_clearmem		;
+0867   05AC AB 03       	inc	m0+1			;
+0868   05AE 69 EC 03    	cmp	m0+1, stream_region	;
+0869   05B1 D0 F4       	bne	_clearmem		;
+0870   05B3             
+0871   05B3 80          	setc				; copy FIR coefficients
+0872   05B4 8F 7F F2    	mov	SPC_DSPA, #DSP_C7	;
+0873   05B7 8D 07       	mov	y, #7			;
+0874   05B9             _copy_coef:				;
+0875   05B9 F6 09 19    	mov	a, !MODULE+MOD_EFIR+y	;
+0876   05BC C4 F3       	mov	SPC_DSPD, a		;
+0877   05BE B8 10 F2    	sbc	SPC_DSPA, #10h		;
+0878   05C1 DC          	dec	y			;
+0879   05C2 10 F5       	bpl	_copy_coef		;
+0880   05C4             
+0881   05C4 8F 0D F2    	mov	SPC_DSPA, #DSP_EFB	; copy EFB
+0882   05C7 E5 08 19    	mov	a, !MODULE+MOD_EFB	;
+0883   05CA C4 F3       	mov	SPC_DSPD, a		;
+0884   05CC             
+0885   05CC 8F 4D F2    	mov	SPC_DSPA, #DSP_EON	; copy EON
+0886   05CF E5 11 19    	mov	a, !MODULE+MOD_EON	;
+0887   05D2 C4 F3       	mov	SPC_DSPD, a		;
+0888   05D4             
+0889   05D4 8F 7D F2    	mov	SPC_DSPA, #DSP_EDL	; read old EDL, set new EDL
+0890   05D7 EB F3       	mov	y, SPC_DSPD		;
+0891   05D9 E5 07 19    	mov	a, !MODULE+MOD_EDL	;
+0892   05DC C4 F3       	mov	SPC_DSPD, a		;
+0893   05DE             
+0894   05DE             	;-----------------------------------------
+0895   05DE             	; delay EDL*16ms before enabling echo
+0896   05DE             	; 16384 clks * EDL
+0897   05DE             	; EDL<<14 clks
+0898   05DE             	;
+0899   05DE             	; run loop EDL<<10 times
+0900   05DE             	;-----------------------------------------
+0901   05DE DD          	mov	a, y			;
+0902   05DF 1C          	asl	a			;
+0903   05E0 1C          	asl	a			;
+0904   05E1 BC          	inc	a			;
+0905   05E2 C4 03       	mov	m0+1, a			;
+0906   05E4 8F 00 02    	mov	m0, #0			;
+0907   05E7             _delay_16clks:				;
+0908   05E7 77 00       	cmp	a, [0]+y		;
+0909   05E9 1A 02       	decw	m0			;
+0910   05EB D0 FA       	bne	_delay_16clks		;
+0911   05ED             
+0912   05ED             
+0913   05ED             
+0914   05ED 3F FE 05    	call	UpdateEchoVolume
+0915   05F0 8F 6C F2    	mov	SPC_DSPA, #DSP_FLG	; clear ECEN
+0916   05F3 8F 00 F3    	mov	SPC_DSPD, #0
+0917   05F6 6F          	ret
+0918   05F7             
+0919   05F7             _skip_enable_echo:
+0920   05F7 8F 00 12    	mov	evol_l, #0
+0921   05FA 8F 00 13    	mov	evol_r, #0
+0922   05FD 6F          	ret
+0923   05FE             
+0924   05FE             ;********************************************************
+0925   05FE             ; set echo volume with master scale applied
+0926   05FE             ;********************************************************
+0927   05FE             UpdateEchoVolume:
+0928   05FE             
+0929   05FE 8F 0C F2    	mov	SPC_DSPA, #DSP_MVOL	; set EVOL scaled by main volume
+0930   0601 E4 F3       	mov	a, SPC_DSPD		;
+0931   0603 1C          	asl	a			;
+0932   0604 C4 02       	mov	m0, a			;
+0933   0606 8F 2C F2    	mov	SPC_DSPA, #DSP_EVOL	;
+0934   0609 EB 12       	mov	y, evol_l		;
+0935   060B CF          	mul	ya			;
+0936   060C DD          	mov	a, y			;
+0937   060D EB 12       	mov	y, evol_l		;
+0938   060F 10 03       	bpl	_plus			;
+0939   0611 80          	setc				;
+0940   0612 A4 02       	sbc	a, m0			;
+0941   0614 C4 F3       _plus:	mov	SPC_DSPD, a		;
+0942   0616             
+0943   0616 E4 02       	mov	a, m0			; set EVOLR scaled by main volume
+0944   0618 8F 3C F2    	mov	SPC_DSPA, #DSP_EVOLR	;
+0945   061B EB 13       	mov	y, evol_r		;
+0946   061D CF          	mul	ya			;
+0947   061E DD          	mov	a, y			;
+0948   061F EB 13       	mov	y, evol_r		;
+0949   0621 10 03       	bpl	_plusr			;
+0950   0623 80          	setc				;
+0951   0624 A4 02       	sbc	a, m0			;
+0952   0626 C4 F3       _plusr:	mov	SPC_DSPD, a		;
+0953   0628             
+0954   0628 6F          	ret
+0955   0629             
+0956   0629             ;********************************************************
+0957   0629             ; zerofill channel data
+0958   0629             ;********************************************************
+0959   0629             Module_ResetChannels:
+0960   0629 CD 25       	mov	x, #ch_start
+0961   062B E8 00       	mov	a, #0
+0962   062D             _zerofill_ch:
+0963   062D AF          	mov	(x)+, a
+0964   062E C8 D5       	cmp	x, #ch_end
+0965   0630 D0 FB       	bne	_zerofill_ch
+0966   0632 6F          	ret
+0967   0633             
+0968   0633             Module_Stop:
+0969   0633 3F 31 04    	call	ResetSound
+0970   0636 8F 06 F1    	mov	SPC_CONTROL, #%110
+0971   0639 8F 00 1D    	mov	mod_active, #0
+0972   063C 6F          	ret
+0973   063D             
+0974   063D             ;********************************************************
+0975   063D             ; play module...
+0976   063D             ;
+0977   063D             ; a = initial position
+0978   063D             ;********************************************************
+0979   063D             Module_Start:
+0980   063D C4 1A       	mov	mod_position, a
+0981   063F 3F 31 04    	call	ResetSound
+0982   0642 3F 29 06    	call	Module_ResetChannels
+0983   0645 8F 01 1D    	mov	mod_active, #1
+0984   0648 E5 F4 18    	mov	a, !MODULE+MOD_IS
+0985   064B C4 1C       	mov	mod_speed, a
+0986   064D E5 F3 18    	mov	a, !MODULE+MOD_IT
+0987   0650 3F BE 06    	call	Module_ChangeTempo
+0988   0653 E5 F2 18    	mov	a, !MODULE+MOD_IV
+0989   0656 C4 1E       	mov	mod_gvol, a
+0990   0658             
+0991   0658 CD 07       	mov	x, #7				;
+0992   065A             _copy_cvolume:					; copy volume levels
+0993   065A F5 F5 18    	mov	a, !MODULE+MOD_CV+x		;
+0994   065D D4 3D       	mov	ch_cvolume+x, a			;
+0995   065F 1D          	dec	x				;
+0996   0660 10 F8       	bpl	_copy_cvolume			;
+0997   0662             
+0998   0662 CD 07       	mov	x, #7
+0999   0664             _copy_cpan:
+1000   0664 F5 FD 18    	mov	a, !MODULE+MOD_CP+x
+1001   0667 68 41       	cmp	a, #65
+1002   0669 B0 04       	bcs	_cpan_surround
+1003   066B D4 45       	mov	ch_panning+x, a
+1004   066D 2F 08       	bra	_cpan_normal
+1005   066F             _cpan_surround:
+1006   066F E8 20       	mov	a, #32
+1007   0671 D4 45       	mov	ch_panning+x, a
+1008   0673 E8 40       	mov	a, #CF_SURROUND
+1009   0675 D4 85       	mov	ch_flags+x, a
+1010   0677             _cpan_normal:
+1011   0677 1D          	dec	x
+1012   0678 10 EA       	bpl	_copy_cpan
+1013   067A             
+1014   067A 3F 7C 05    	call	SetupEcho
+1015   067D             
+1016   067D E4 1A       	mov	a, mod_position
+1017   067F 3F 8C 06    	call	Module_ChangePosition
+1018   0682             
+1019   0682             	; start timer
+1020   0682 8F 07 F1    	mov	SPC_CONTROL, #%111
+1021   0685             
+1022   0685 18 20 DF    	or	STATUS, #STATUS_P
+1023   0688 FA DF F6    	mov	SPC_PORT2, STATUS
+1024   068B             
+1025   068B             	;SETDSP( DSP_KOF, 0 );	// ??????
+1026   068B 6F          	ret
+1027   068C             
+1028   068C             ;********************************************************
+1029   068C             ; set sequence position
+1030   068C             ;
+1031   068C             ; a=position
+1032   068C             ;********************************************************
+1033   068C             Module_ChangePosition:
+1034   068C             
+1035   068C FD          	mov	y, a
+1036   068D             _skip_pattern:
+1037   068D F6 12 19    	mov	a, !MODULE+MOD_SEQU+y
+1038   0690 68 FE       	cmp	a, #254			; skip +++
+1039   0692 D0 03       	bne	_not_plusplusplus	;
+1040   0694 FC          	inc	y			;
+1041   0695 2F F6       	bra	_skip_pattern		;
+1042   0697             _not_plusplusplus:
+1043   0697 68 FF       	cmp	a, #255			; restart on ---
+1044   0699 D0 04       	bne	_not_end		;
+1045   069B 8D 00       	mov	y, #0			;
+1046   069D 2F EE       	bra	_skip_pattern		;
+1047   069F             _not_end:
+1048   069F CB 1A       	mov	mod_position, y
+1049   06A1 FD          	mov	y, a
+1050   06A2 F6 DA 19    	mov	a, !MODULE+MOD_PTABLE_L+y
+1051   06A5 C4 1F       	mov	patt_addr, a
+1052   06A7 F6 1A 1A    	mov	a, !MODULE+MOD_PTABLE_H+y
+1053   06AA C4 20       	mov	patt_addr+1, a
+1054   06AC 8D 00       	mov	y, #0
+1055   06AE F7 1F       	mov	a, [patt_addr]+y
+1056   06B0 C4 21       	mov	patt_rows, a
+1057   06B2             
+1058   06B2 3A 1F       	incw	patt_addr
+1059   06B4             
+1060   06B4 8F 00 22    	mov	pattjump_enable, #0
+1061   06B7 8F 00 18    	mov	mod_tick, #0
+1062   06BA 8F 00 19    	mov	mod_row, #0
+1063   06BD 6F          	ret
+1064   06BE             
+1065   06BE             ;********************************************************
+1066   06BE             ; a = new BPM value
+1067   06BE             ;********************************************************
+1068   06BE             Module_ChangeTempo:
+1069   06BE 4D          	push	x
+1070   06BF C4 1B       	mov	mod_bpm, a
+1071   06C1 8F 06 F1    	mov	SPC_CONTROL, #%110
+1072   06C4             
+1073   06C4 5D          	mov	x, a
+1074   06C5 8D 4E       	mov	y, #4eh
+1075   06C7 E8 00       	mov	a, #00h
+1076   06C9 9E          	div	ya, x
+1077   06CA C4 FA       	mov	SPC_TIMER0, a
+1078   06CC CE          	pop	x
+1079   06CD 6F          	ret
+1080   06CE             
+1081   06CE             ;********************************************************
+1082   06CE             ; process module fading
+1083   06CE             ;********************************************************
+1084   06CE             ProcessFade:
+1085   06CE E4 FE       	mov	a, SPC_COUNTER1
+1086   06D0 F0 31       	beq	_skipfade
+1087   06D2 18 80 DF    	or	STATUS, #STATUS_F
+1088   06D5 E4 14       	mov	a, module_vol
+1089   06D7 64 15       	cmp	a, module_fadeT
+1090   06D9 F0 25       	beq	_nofade
+1091   06DB 90 10       	bcc	_fadein
+1092   06DD             ;--------------------------------------------
+1093   06DD             _fadeout:
+1094   06DD             ;--------------------------------------------
+1095   06DD A4 16       	sbc	a, module_fadeR
+1096   06DF B0 04       	bcs	_fade_satL
+1097   06E1 FA 15 14    	mov	module_vol, module_fadeT
+1098   06E4 6F          	ret
+1099   06E5             _fade_satL:
+1100   06E5 64 15       	cmp	a, module_fadeT
+1101   06E7 B0 14       	bcs	_fadeset
+1102   06E9 FA 15 14    	mov	module_vol, module_fadeT
+1103   06EC 6F          	ret
+1104   06ED             ;--------------------------------------------
+1105   06ED             _fadein:
+1106   06ED             ;--------------------------------------------
+1107   06ED 84 16       	adc	a, module_fadeR
+1108   06EF 90 04       	bcc	_fade_satH
+1109   06F1 FA 15 14    	mov	module_vol, module_fadeT
+1110   06F4 6F          	ret
+1111   06F5             _fade_satH:
+1112   06F5 64 15       	cmp	a, module_fadeT
+1113   06F7 90 04       	bcc	_fadeset
+1114   06F9 FA 15 14    	mov	module_vol, module_fadeT
+1115   06FC 6F          	ret
+1116   06FD             _fadeset:
+1117   06FD C4 14       	mov	module_vol, a
+1118   06FF 6F          	ret
+1119   0700             _nofade:
+1120   0700 38 7F DF    	and	STATUS, #~STATUS_F
+1121   0703             _skipfade:
+1122   0703 6F          	ret
+1123   0704             
+1124   0704             ;********************************************************
+1125   0704             ; Update module playback
+1126   0704             ;
+1127   0704             ;********************************************************
+1128   0704             Module_Update:
+1129   0704 E4 1D       	mov	a, mod_active
+1130   0706 F0 07       	beq	_no_tick
+1131   0708 E4 FD       	mov	a, SPC_COUNTER0		; check for a tick
+1132   070A F0 03       	beq	_no_tick		;
+1133   070C             
+1134   070C 3F 10 07    	call	Module_OnTick		;
+1135   070F             _no_tick:				;
+1136   070F 6F          	ret				;
+1137   0710             
+1138   0710             ;********************************************************
+1139   0710             ; module tick!!!
+1140   0710             ;********************************************************
+1141   0710             Module_OnTick:
+1142   0710 78 00 18    	cmp	mod_tick, #0
+1143   0713 D0 03       	bne	_skip_read_pattern
+1144   0715 3F 41 07    	call	Module_ReadPattern
+1145   0718             _skip_read_pattern:
+1146   0718             
+1147   0718 3F 9F 07    	call	Module_UpdateChannels
+1148   071B             
+1149   071B AB 18       	inc	mod_tick		; increment tick until >= SPEED
+1150   071D 69 1C 18    	cmp	mod_tick, mod_speed	;
+1151   0720 90 1E       	bcc	_exit_tick		;
+1152   0722 8F 00 18    	mov	mod_tick, #0		;
+1153   0725             
+1154   0725 78 00 22    	cmp	pattjump_enable, #0	; catch pattern jump...
+1155   0728 F0 05       	beq	_no_pattjump		;
+1156   072A E4 23       	mov	a, pattjump_index	;
+1157   072C 5F 8C 06    	jmp	Module_ChangePosition	;
+1158   072F             _no_pattjump:				;
+1159   072F             
+1160   072F AB 19       	inc	mod_row			; increment row until > PATTERN_ROWS
+1161   0731 F0 07       	beq	_adv_pos
+1162   0733 69 21 19    	cmp	mod_row, patt_rows	;
+1163   0736 F0 08       	beq	_exit_tick
+1164   0738 90 06       	bcc	_exit_tick		;
+1165   073A             _adv_pos:
+1166   073A             
+1167   073A E4 1A       	mov	a, mod_position		; advance position
+1168   073C BC          	inc	a			;
+1169   073D 5F 8C 06    	jmp	Module_ChangePosition	;
+1170   0740             _exit_tick:
+1171   0740 6F          	ret
+1172   0741             
+1173   0741             ;********************************************************
+1174   0741             ; read pattern data
+1175   0741             ;********************************************************
+1176   0741             Module_ReadPattern:
+1177   0741             
+1178   0741 8D 01       	mov	y, #1			; skip hints
+1179   0743 F7 1F       	mov	a, [patt_addr]+y	; copy update flags
+1180   0745 FC          	inc	y			;
+1181   0746 C4 24       	mov	patt_update, a		;
+1182   0748 C4 04       	mov	m1, a			;
+1183   074A CD 00       	mov	x, #0
+1184   074C             
+1185   074C 4B 04       	lsr	m1			; test first bit
+1186   074E 90 36       	bcc	_no_channel_data	;
+1187   0750             _read_pattern_data:
+1188   0750 01          	SPROC
+1189   0751 F7 1F       	mov	a, [patt_addr]+y	; read maskvar
+1190   0753 FC          	inc	y			;
+1191   0754 C4 02       	mov	m0, a			;
+1192   0756             
+1193   0756 93 02 05    	bbc4	m0, _skip_read_note	; test/read new note
+1194   0759 F7 1F       	mov	a, [patt_addr]+y	;
+1195   075B FC          	inc	y			;
+1196   075C D4 55       	mov	ch_note+x, a		;
+1197   075E             _skip_read_note:			;
+1198   075E             
+1199   075E B3 02 05    	bbc5	m0, _skip_read_instr	; test/read new instrument
+1200   0761 F7 1F       	mov	a, [patt_addr]+y	;
+1201   0763 FC          	inc	y			;
+1202   0764 D4 5D       	mov	ch_instr+x, a		;
+1203   0766             _skip_read_instr:			;
+1204   0766             
+1205   0766 D3 02 05    	bbc6	m0, _skip_read_vcmd	; test/read new vcmd
+1206   0769 F7 1F       	mov	a, [patt_addr]+y	;
+1207   076B FC          	inc	y			;
+1208   076C D4 65       	mov	ch_vcmd+x, a		;
+1209   076E             _skip_read_vcmd:			;
+1210   076E             
+1211   076E F3 02 0A    	bbc7	m0, _skip_read_cmd	; test/read new cmd+param
+1212   0771 F7 1F       	mov	a, [patt_addr]+y	;
+1213   0773 FC          	inc	y			;
+1214   0774 D4 6D       	mov	ch_command+x, a		;
+1215   0776 F7 1F       	mov	a, [patt_addr]+y	;
+1216   0778 FC          	inc	y			;
+1217   0779 D4 75       	mov	ch_param+x, a		;
+1218   077B             _skip_read_cmd:				;
+1219   077B             
+1220   077B 38 0F 02    	and	m0, #0Fh		; set flags (lower nibble)
+1221   077E F4 85       	mov	a, ch_flags+x		;
+1222   0780 28 F0       	and	a, #0F0h		;
+1223   0782 04 02       	or	a, m0			;
+1224   0784 D4 85       	mov	ch_flags+x, a		;
+1225   0786             
+1226   0786             _no_channel_data:			;
+1227   0786             _rp_nextchannel:
+1228   0786 3D          	inc	x			; increment index
+1229   0787 4B 04       	lsr	m1			; shift out next bit
+1230   0789 B0 C5       	bcs	_read_pattern_data	; process if set
+1231   078B D0 F9       	bne	_no_channel_data	; loop if bits remain (upto 8 iterations)
+1232   078D             	;-------------------------------
+1233   078D             
+1234   078D CB 02       	mov	m0, y			; add offset to pattern address
+1235   078F 60          	clrc				;
+1236   0790 89 02 1F    	adc	patt_addr, m0		;
+1237   0793 98 00 20    	adc	patt_addr+1, #0		;
+1238   0796             
+1239   0796 6F          	ret
+1240   0797             
+1241   0797             BITS:
+1242   0797 010204081020	.byte 1, 2, 4, 8, 16, 32, 64, 128
+1242   079D 4080
+1243   079F             
+1244   079F             ;********************************************************
+1245   079F             ; update module channels...
+1246   079F             ;********************************************************
+1247   079F             Module_UpdateChannels:
+1248   079F CD 00       	mov	x, #0
+1249   07A1 E4 24       	mov	a, patt_update
+1250   07A3             
+1251   07A3             _muc_loop:
+1252   07A3 5C          	lsr	a
+1253   07A4 2D          	push	a
+1254   07A5 E8 00       	mov	a, #0
+1255   07A7 3C          	rol	a
+1256   07A8 C4 D5       	mov	t_hasdata, a
+1257   07AA             
+1258   07AA 3F B4 07    	call	Module_UpdateChannel
+1259   07AD             
+1260   07AD AE          	pop	a
+1261   07AE             
+1262   07AE 3D          	inc	x
+1263   07AF C8 08       	cmp	x, #8
+1264   07B1 D0 F0       	bne	_muc_loop
+1265   07B3             
+1266   07B3 6F          	ret
+1267   07B4             
+1268   07B4             ;********************************************************
+1269   07B4             ; update module channel
+1270   07B4             ;********************************************************
+1271   07B4             Module_UpdateChannel:
+1272   07B4 01          	SPROC
+1273   07B5             
+1274   07B5             	;--------------------------------------
+1275   07B5             	; get data pointers
+1276   07B5             	;--------------------------------------
+1277   07B5 FB 5D       	mov	y, ch_instr+x
+1278   07B7 DC          	dec	y
+1279   07B8 F6 5A 1A    	mov	a, !MODULE+MOD_ITABLE_L+y
+1280   07BB C4 DD       	mov	p_instr, a
+1281   07BD F6 9A 1A    	mov	a, !MODULE+MOD_ITABLE_H+y
+1282   07C0 C4 DE       	mov	p_instr+1, a
+1283   07C2             
+1284   07C2             
+1285   07C2 8F 00 DB    	mov	t_flags, #0
+1286   07C5 78 00 D5    	cmp	t_hasdata, #0
+1287   07C8 F0 05       	beq	_muc_nopatterndata
+1288   07CA             
+1289   07CA 3F D6 07    	call	Channel_ProcessData
+1290   07CD 2F 03       	bra	_muc_pa
+1291   07CF             _muc_nopatterndata:
+1292   07CF 3F 4F 08    	call	Channel_CopyTemps
+1293   07D2             _muc_pa:
+1294   07D2             
+1295   07D2 3F 8B 08    	call	Channel_ProcessAudio
+1296   07D5 6F          	ret
+1297   07D6             
+1298   07D6             ;********************************************************	
+1299   07D6             Channel_ProcessData:
+1300   07D6             ;********************************************************
+1301   07D6             
+1302   07D6 78 00 18    	cmp	mod_tick, #0		; skip tick0 processing on other ticks
+1303   07D9 D0 5C       	bne	_cpd_non0		;
+1304   07DB             
+1305   07DB F4 85       	mov	a, ch_flags+x
+1306   07DD C4 0E       	mov	m6, a
+1307   07DF             
+1308   07DF 13 0E 4A    	bbc0	m6, _cpd_no_note	; test for note
+1309   07E2 F4 55       	mov	a, ch_note+x		;
+1310   07E4 68 FE       	cmp	a, #254			; test notecut/noteoff
+1311   07E6 F0 10       	beq	_cpd_notecut		;
+1312   07E8 B0 17       	bcs	_cpd_noteoff		;
+1313   07EA             
+1314   07EA             _cpd_note:				; dont start note on glissando
+1315   07EA 73 0E 06    	bbc3	m6, _cpdn_test_for_glis	;
+1316   07ED F4 6D       	mov	a, ch_command+x		;
+1317   07EF 68 07       	cmp	a, #7			;
+1318   07F1 F0 11       	beq	_cpd_note_next		;
+1319   07F3             _cpdn_test_for_glis:			;
+1320   07F3             					;
+1321   07F3 3F 5F 08    	call	Channel_StartNewNote	;
+1322   07F6 2F 0C       	bra	_cpd_note_next		;
+1323   07F8             
+1324   07F8             _cpd_notecut:				;notecut:
+1325   07F8 E8 00       	mov	a, #0			; cut volume
+1326   07FA D4 35       	mov	ch_volume+x, a		;
+1327   07FC 38 FE 0E    	and	m6, #~CF_NOTE		; clear note flag
+1328   07FF 2F 03       	bra	_cpd_note_next		;
+1329   0801             
+1330   0801             _cpd_noteoff:				;noteoff:
+1331   0801 38 EE 0E    	and	m6, #~(CF_NOTE|CF_KEYON); clear note and keyon flags
+1332   0804             
+1333   0804             _cpd_note_next:
+1334   0804             
+1335   0804 33 0E 22    	bbc1	m6, _cpdn_no_instr	; apply instrument SETPAN
+1336   0807 8D 03       	mov	y, #INS_SETPAN		;
+1337   0809 F7 DD       	mov	a, [p_instr]+y		;
+1338   080B 30 02       	bmi	_cpdi_nsetpan		;
+1339   080D D4 45       	mov	ch_panning+x, a		;
+1340   080F             _cpdi_nsetpan:				;
+1341   080F             
+1342   080F FB 7D       	mov	y, ch_sample+x		; apply sample SETPAN
+1343   0811             ;	beq	_cpdi_nosample		;
+1344   0811 F6 DA 1A    	mov	a, !MODULE+MOD_STABLE_L+y	;
+1345   0814 C4 02       	mov	m0, a			;
+1346   0816 F6 1A 1B    	mov	a, !MODULE+MOD_STABLE_H+y	;
+1347   0819 C4 03       	mov	m0+1, a			;
+1348   081B 8D 00       	mov	y, #SAMP_DVOL		; copy default volume
+1349   081D F7 02       	mov	a, [m0]+y		;
+1350   081F D4 35       	mov	ch_volume+x, a		;
+1351   0821 8D 05       	mov	y, #SAMP_SETPAN		;
+1352   0823 F7 02       	mov	a, [m0]+y		;
+1353   0825 30 02       	bmi	_cpdi_nsetpan_s		;
+1354   0827 D4 45       	mov	ch_panning+x, a		;
+1355   0829             _cpdi_nsetpan_s:
+1356   0829             _cpdi_nosample:
+1357   0829             _cpdn_no_instr:
+1358   0829             
+1359   0829 38 FE 0E    	and	m6, #~CF_NOTE
+1360   082C             
+1361   082C             _cpd_no_note:				;
+1362   082C             
+1363   082C E4 0E       	mov	a, m6			; save flag mods
+1364   082E D4 85       	mov	ch_flags+x, a		;
+1365   0830             
+1366   0830 28 03       	and	a, #(CF_NOTE|CF_INSTR)	; test for note or instrument
+1367   0832 F0 03       	beq	_no_note_or_instr	;
+1368   0834 3F 76 08    	call	Channel_ResetVolume	; and reset volume things
+1369   0837             _no_note_or_instr:			;
+1370   0837             
+1371   0837             _cpd_non0:				; nonzero ticks: just update audio
+1372   0837             
+1373   0837 01          	SPROC
+1374   0838             
+1375   0838 F4 85       	mov	a, ch_flags+x		; test and process volume command
+1376   083A 28 04       	and	a, #CF_VCMD		;
+1377   083C F0 03       	beq	_skip_vcmd		;
+1378   083E 3F 9E 0A    	call	Channel_ProcessVolumeCommand
+1379   0841             _skip_vcmd:
+1380   0841 01          	SPROC
+1381   0842 3F 4F 08    	call	Channel_CopyTemps	; copy t values
+1382   0845             
+1383   0845 F4 85       	mov	a, ch_flags+x		; test and process command
+1384   0847 28 08       	and	a, #CF_CMD		;
+1385   0849 F0 03       	beq	_skip_cmd		;
+1386   084B 3F 70 0B    	call	Channel_ProcessCommand	;
+1387   084E             _skip_cmd:
+1388   084E             
+1389   084E 6F          	ret
+1390   084F             
+1391   084F             ;********************************************************
+1392   084F             Channel_CopyTemps:
+1393   084F             ;********************************************************
+1394   084F             
+1395   084F F4 25       	mov	a, ch_pitch_l+x		; prepare for effects processing.....
+1396   0851 FB 2D       	mov	y, ch_pitch_h+x		;
+1397   0853 DA D9       	movw	t_pitch, ya		;
+1398   0855 F4 35       	mov	a, ch_volume+x		;
+1399   0857 FB 45       	mov	y, ch_panning+x		;
+1400   0859 DA D7       	movw	t_volume, ya		;
+1401   085B 8F 00 D6    	mov	t_sampoff, #0		;
+1402   085E             
+1403   085E             
+1404   085E 6F          	ret
+1405   085F             
+1406   085F             ;********************************************************
+1407   085F             Channel_StartNewNote:
+1408   085F             ;********************************************************
+1409   085F             
+1410   085F F4 55       	mov	a, ch_note+x		; pitch = note * 64
+1411   0861 8D 40       	mov	y, #64			;
+1412   0863 CF          	mul	ya			;
+1413   0864 D4 25       	mov	ch_pitch_l+x, a		;
+1414   0866 DB 2D       	mov	ch_pitch_h+x, y		;
+1415   0868             
+1416   0868 F4 5D       	mov	a, ch_instr+x		; test for instrument and copy sample!
+1417   086A F0 06       	beq	_csnn_no_instr		;
+1418   086C 8D 01       	mov	y, #INS_SAMPLE		;
+1419   086E F7 DD       	mov	a, [p_instr]+y		;
+1420   0870 D4 7D       	mov	ch_sample+x, a		;
+1421   0872             _csnn_no_instr:
+1422   0872             
+1423   0872 18 80 DB    	or	t_flags, #TF_START	; set start flag
+1424   0875 6F          	ret
+1425   0876             
+1426   0876             ;********************************************************
+1427   0876             Channel_ResetVolume:
+1428   0876             ;********************************************************
+1429   0876 E8 FF       	mov	a, #255			; reset fadeout
+1430   0878 D4 BD       	mov	ch_fadeout+x, a		;----------------
+1431   087A E8 00       	mov	a, #0			; reset envelope
+1432   087C D4 9D       	mov	ch_env_node+x, a	;
+1433   087E D4 A5       	mov	ch_env_tick+x, a	;----------------
+1434   0880 D4 4D       	mov	ch_cmem+x, a		; reset CMem
+1435   0882             					;----------------
+1436   0882 F4 85       	mov	a, ch_flags+x		; set KEYON
+1437   0884 08 10       	or	a, #CF_KEYON		; clear FADE
+1438   0886 28 DF       	and	a, #~CF_FADE		;
+1439   0888 D4 85       	mov	ch_flags+x, a		;----------------
+1440   088A 6F          	ret
+1441   088B             
+1442   088B             ;********************************************************
+1443   088B             Channel_ProcessAudio:
+1444   088B             ;********************************************************
+1445   088B             
+1446   088B 01          	SPROC
+1447   088C FB 7D       	mov	y, ch_sample+x			; m5 = sample address
+1448   088E             ;	beq	_cpa_nsample			;
+1449   088E F6 DA 1A    	mov	a, !MODULE+MOD_STABLE_L+y	;
+1450   0891 C4 0C       	mov	m5, a				;
+1451   0893 F6 1A 1B    	mov	a, !MODULE+MOD_STABLE_H+y	;
+1452   0896 C4 0D       	mov	m5+1, a				;
+1453   0898             _cpa_nsample:					;
+1454   0898             
+1455   0898 3F D1 09    	call	Channel_ProcessEnvelope
+1456   089B             
+1457   089B F4 85       	mov	a, ch_flags+x			; process FADE
+1458   089D 28 20       	and	a, #CF_FADE			;
+1459   089F F0 0D       	beq	_skip_fade			;
+1460   08A1 F4 BD       	mov	a, ch_fadeout+x			;
+1461   08A3 80          	setc					;
+1462   08A4 8D 00       	mov	y, #INS_FADEOUT			;
+1463   08A6 B7 DD       	sbc	a, [p_instr]+y			;
+1464   08A8 B0 02       	bcs	_subfade_noverflow		;	
+1465   08AA E8 00       	mov	a, #0				;
+1466   08AC             _subfade_noverflow:				;
+1467   08AC D4 BD       	mov	ch_fadeout+x, a			;
+1468   08AE             _skip_fade:					;
+1469   08AE             
+1470   08AE F5 97 07    	mov	a, !BITS+x
+1471   08B1 24 E1       	and	a, sfx_mask
+1472   08B3 D0 06       	bne	_sfx_override
+1473   08B5             
+1474   08B5 E4 DB       	mov	a, t_flags			; exit if 'note delay' is set
+1475   08B7 28 02       	and	a, #TF_DELAY			;
+1476   08B9 F0 01       	beq	_cpa_ndelay			;
+1477   08BB             _sfx_override:
+1478   08BB 6F          	ret					;
+1479   08BC             _cpa_ndelay:					;
+1480   08BC             
+1481   08BC             	;----------------------------------------
+1482   08BC             	; COMPUTE VOLUME:
+1483   08BC             	; V*CV*SV*GV*VEV*FADE
+1484   08BC             	; m0 = result (0..255)
+1485   08BC             	;----------------------------------------
+1486   08BC             
+1487   08BC 8D 02       	mov	y, #INS_GVOL
+1488   08BE F7 DD       	mov	a, [p_instr]+y
+1489   08C0 2D          	push	a
+1490   08C1 8D 01       	mov	y, #SAMP_GVOL
+1491   08C3 F7 0C       	mov	a, [m5]+y
+1492   08C5 2D          	push	a
+1493   08C6             
+1494   08C6 E4 D7       	mov	a, t_volume			; y = 8-BIT VOLUME
+1495   08C8 1C          	asl	a				;
+1496   08C9 1C          	asl	a				;		
+1497   08CA 90 02       	bcc	_cpa_clamp_vol			;	
+1498   08CC E8 FF       	mov	a, #255				;
+1499   08CE             _cpa_clamp_vol:					;
+1500   08CE FD          	mov	y, a				;
+1501   08CF             
+1502   08CF F4 3D       	mov	a, ch_cvolume+x			; *= CV
+1503   08D1 1C          	asl	a				;
+1504   08D2 1C          	asl	a
+1505   08D3 B0 01       	bcs	_calcvol_skip_cv		;
+1506   08D5 CF          	mul	ya				;
+1507   08D6             _calcvol_skip_cv:				;
+1508   08D6             
+1509   08D6 AE          	pop	a				; *= SV
+1510   08D7 1C          	asl	a				;
+1511   08D8 1C          	asl	a
+1512   08D9 B0 01       	bcs	_calcvol_skip_sv		;
+1513   08DB CF          	mul	ya				;
+1514   08DC             _calcvol_skip_sv:				;
+1515   08DC             
+1516   08DC AE          	pop	a				;
+1517   08DD 1C          	asl	a				;
+1518   08DE B0 01       	bcs	_calcvol_skip_iv		;
+1519   08E0 CF          	mul	ya				;
+1520   08E1             _calcvol_skip_iv:
+1521   08E1             
+1522   08E1 E4 1E       	mov	a, mod_gvol			; *= GV
+1523   08E3 1C          	asl	a				;
+1524   08E4 B0 01       	bcs	_calcvol_skip_gvol		;
+1525   08E6 CF          	mul	ya				;
+1526   08E7             _calcvol_skip_gvol:				;
+1527   08E7             
+1528   08E7 E4 DC       	mov	a, t_env			; *= VEV
+1529   08E9 CF          	mul	ya				;
+1530   08EA             
+1531   08EA F4 BD       	mov	a, ch_fadeout+x			; *= FADE
+1532   08EC CF          	mul	ya				;
+1533   08ED             
+1534   08ED E4 14       	mov	a, module_vol
+1535   08EF CF          	mul	ya
+1536   08F0             
+1537   08F0 DD          	mov	a, y				; store 7bit result
+1538   08F1 5C          	lsr	a				; 
+1539   08F2 C4 06       	mov	m2, a
+1540   08F4             
+1541   08F4 78 80 DB    	cmp	t_flags, #80h
+1542   08F7 B0 0E       	bcs	_dont_hack_gain
+1543   08F9 68 00       	cmp	a, #0
+1544   08FB D0 02       	bne	_gain_not_zero			; map value 0 to fast linear decrease
+1545   08FD E8 9C       	mov	a, #%10011100			; (8ms)
+1546   08FF             _gain_not_zero:					;
+1547   08FF 68 7E       	cmp	a, #126				; map value 127 to fast linear increase
+1548   0901 D0 02       	bne	_gain_not_max			; (8ms)
+1549   0903 E8 DC       	mov	a, #%11011100			;
+1550   0905             _gain_not_max:					;
+1551   0905 C4 06       	mov	m2, a				;
+1552   0907             _dont_hack_gain:				;
+1553   0907 F4 85       	mov	a, ch_flags+x			; [KFF] added in pitchmod
+1554   0909 28 80       	and	a, #80h				;
+1555   090B F0 08       	beq	panning				;
+1556   090D 8F 00 04    	mov	m1, #0				;
+1557   0910 8F 00 05    	mov	m1+1, #0			;
+1558   0913 2F 17       	bra	_cpa_nsurround			;
+1559   0915             
+1560   0915             panning:
+1561   0915             	;---------------------------------------
+1562   0915             	; compute PANNING
+1563   0915             	;---------------------------------------
+1564   0915 E4 D8       	mov	a, t_panning			; a = panning 0..127	
+1565   0917 1C          	asl	a				;	
+1566   0918 10 01       	bpl	_clamppan			;
+1567   091A 9C          	dec	a				;
+1568   091B             _clamppan:					;	
+1569   091B C4 05       	mov	m1+1, a				; store panning (volume) levels
+1570   091D 48 7F       	eor	a, #127				;
+1571   091F C4 04       	mov	m1, a				;
+1572   0921             
+1573   0921 F4 85       	mov	a, ch_flags+x			; apply surround (R = -R)
+1574   0923 28 40       	and	a, #CF_SURROUND			;
+1575   0925 F0 05       	beq	_cpa_nsurround			;
+1576   0927 58 FF 05    	eor	m1+1, #255			;
+1577   092A AB 05       	inc	m1+1				;
+1578   092C             _cpa_nsurround:					;
+1579   092C             
+1580   092C             	;---------------------------------------
+1581   092C             	; compute PITCH
+1582   092C             	;---------------------------------------
+1583   092C C8 01       	cmp	x, #1
+1584   092E             
+1585   092E 8D 02       	mov	y, #SAMP_PITCHBASE		; m3 = t_pitch PITCHBASE
+1586   0930 F7 0C       	mov	a, [m5]+y			;
+1587   0932 60          	clrc					;
+1588   0933 84 D9       	adc	a, t_pitch_l			;
+1589   0935 C4 08       	mov	m3, a				;
+1590   0937 FC          	inc	y				;
+1591   0938 F7 0C       	mov	a, [m5]+y			;
+1592   093A 84 DA       	adc	a, t_pitch_h			;
+1593   093C C4 09       	mov	m3+1, a				;
+1594   093E 10 0C       	bpl	_positive_oct			;
+1595   0940             
+1596   0940             ; Negative octave handling by KungFuFurby 12/16/15 - 12/17/15
+1597   0940             ; Negative octave detected!
+1598   0940             ; This code ensures that the SPC700 can handle lower pitches than
+1599   0940             ; what SNESMod normally supports.
+1600   0940             
+1601   0940 48 FF       	eor	a, #0FFh			; Prevent glitched
+1602   0942 FD          	mov	y, a				; division read.
+1603   0943 F6 F3 0F    	mov	a, !LUT_DIV3+y			; m0 = octave
+1604   0946 48 FF       	eor	a, #0FFh			;
+1605   0948 C4 02       	mov	m0, a				;
+1606   094A 2F 06       	bra	_oct_cont
+1607   094C             
+1608   094C             _positive_oct:
+1609   094C FD          	mov	y, a				; m0 = octave
+1610   094D F6 F3 0F    	mov	a, !LUT_DIV3+y			;
+1611   0950 C4 02       	mov	m0, a				;
+1612   0952             _oct_cont:
+1613   0952 1C          	asl	a				; m3 -= (oct*3) << 8
+1614   0953 60          	clrc					; Safety clear for negative
+1615   0954 84 02       	adc	a, m0				; octaves
+1616   0956 C4 03       	mov	m0+1, a				;
+1617   0958 E4 09       	mov	a, m3+1				;
+1618   095A 80          	setc					;
+1619   095B A4 03       	sbc	a, m0+1				;
+1620   095D             
+1621   095D 0B 08       	asl	m3				; m3 = m3*2 + LUT_FTAB base
+1622   095F 3C          	rol	a				;
+1623   0960 98 13 08    	adc	m3, #(LUT_FTAB&0FFh)		;
+1624   0963 88 10       	adc	a, #(LUT_FTAB>>8)		; 
+1625   0965 C4 09       	mov	m3+1, a				;
+1626   0967             
+1627   0967 8D 00       	mov	y, #0				; read ftab[f]
+1628   0969 F7 08       	mov	a, [m3]+y			;
+1629   096B C4 0A       	mov	m4, a				;
+1630   096D FC          	inc	y				;
+1631   096E F7 08       	mov	a, [m3]+y			;
+1632   0970 2D          	push	a				;
+1633   0971             
+1634   0971 E8 08       	mov	a, #8				; y = 8-oct
+1635   0973 80          	setc					;
+1636   0974 A4 02       	sbc	a, m0				;
+1637   0976 FD          	mov	y, a				;
+1638   0977             
+1639   0977 AE          	pop	a				; a,m4 = ftab value
+1640   0978 F0 05       	beq	_no_pitch_shift			; skip shift if 0
+1641   097A             
+1642   097A             _cont_pitch_shift:
+1643   097A 5C          	lsr	a				; shift by (8-oct)
+1644   097B 6B 0A       	ror	m4				;
+1645   097D FE FB       	dbnz	y, _cont_pitch_shift		; (thanks KungFuFurby)
+1646   097F             
+1647   097F             ; WARNING: More than eight pitch shifts are possible,
+1648   097F             ; so the code has been compressed to a mere three lines
+1649   097F             ; Only problem will be with glitched values out of range.
+1650   097F             
+1651   097F             _no_pitch_shift:
+1652   097F C4 0B       	mov	m4+1, a
+1653   0981             
+1654   0981             	;----------------------------------------
+1655   0981             	; m1 = VOL/VOLR
+1656   0981             	; m2 = GAIN
+1657   0981             	; m4 = PITCH
+1658   0981             	;----------------------------------------
+1659   0981 7D          	mov	a, x				; DSPA = voices[x]
+1660   0982 9F          	xcn	a				;
+1661   0983 C4 F2       	mov	SPC_DSPA, a			;
+1662   0985             						;------------------------------
+1663   0985 E4 DB       	mov	a, t_flags			; test for KEYON
+1664   0987 28 80       	and	a, #TF_START			;
+1665   0989 F0 15       	beq	_cpa_nstart			;------------------------------
+1666   098B             						;keyon:
+1667   098B 8D 04       	mov	y, #SAMP_DINDEX			; set SRCN
+1668   098D F7 0C       	mov	a, [m5]+y			;
+1669   098F 18 04 F2    	or	SPC_DSPA, #DSPV_SRCN		;
+1670   0992 C4 F3       	mov	SPC_DSPD, a			;------------------------------
+1671   0994             	;----------------------------------------
+1672   0994             	; **TODO: SAMPLE OFFSET
+1673   0994             	;----------------------------------------
+1674   0994 8F 4C F2    	mov	SPC_DSPA, #DSP_KON		; set KON bit
+1675   0997 F5 97 07    	mov	a, !BITS+x			;
+1676   099A C4 F3       	mov	SPC_DSPD, a			;------------------------------
+1677   099C 7D          	mov	a, x				; restore DSPA = voices[x]
+1678   099D 9F          	xcn	a				;
+1679   099E C4 F2       	mov	SPC_DSPA, a			;
+1680   09A0             ;------------------------------------------------
+1681   09A0             _cpa_nstart:
+1682   09A0             ;------------------------------------------------
+1683   09A0 FA 04 F3    	mov	SPC_DSPD, m1			; set VOLUME
+1684   09A3 AB F2       	inc	SPC_DSPA			;
+1685   09A5 FA 05 F3    	mov	SPC_DSPD, m1+1			;
+1686   09A8 AB F2       	inc	SPC_DSPA			;------------------------------
+1687   09AA FA 0A F3    	mov	SPC_DSPD, m4			; set PITCH
+1688   09AD AB F2       	inc	SPC_DSPA			;
+1689   09AF FA 0B F3    	mov	SPC_DSPD, m4+1			;
+1690   09B2 AB F2       	inc	SPC_DSPA			;
+1691   09B4 AB F2       	inc	SPC_DSPA			;------------------------------
+1692   09B6             						;
+1693   09B6 F4 C5       	mov	a, ch_ad+x			; test for ADSR
+1694   09B8 68 80       	cmp	a, #ADSR			;
+1695   09BA B0 0B       	bcs	_ch_adsr			;
+1696   09BC             						;
+1697   09BC             _ch_direct_gain:				;
+1698   09BC 8F 00 F3    	mov	SPC_DSPD, #00h			; disable ADSR
+1699   09BF 18 07 F2    	or	SPC_DSPA, #07h			; set GAIN [default]
+1700   09C2 FA 06 F3    	mov	SPC_DSPD, m2			;------------------------------
+1701   09C5             						;
+1702   09C5             	;----------------------------------------
+1703   09C5             	; **TODO: RESTORE SAMPLE OFFSET
+1704   09C5             	;----------------------------------------
+1705   09C5             						;
+1706   09C5             _end_ch_process_audio:				;
+1707   09C5 01          	SPROC					;
+1708   09C6             						;
+1709   09C6 6F          	ret					;
+1710   09C7             						;
+1711   09C7             _ch_adsr:					;
+1712   09C7 C4 F3       	mov	SPC_DSPD, a			; store attack and decay rate
+1713   09C9 AB F2       	inc	SPC_DSPA			;
+1714   09CB F4 CD       	mov	a, ch_sr+x			;
+1715   09CD C4 F3       	mov	SPC_DSPD, a			; store sustain rate and level
+1716   09CF 2F F4       	bra	_end_ch_process_audio		;
+1717   09D1             
+1718   09D1             ;********************************************************
+1719   09D1             Channel_ProcessEnvelope:
+1720   09D1             ;********************************************************
+1721   09D1 E4 DB       	mov	a, t_flags			; exit if 'note delay' is set
+1722   09D3 28 02       	and	a, #TF_DELAY
+1723   09D5 D0 14       	bne	_env_quit
+1724   09D7             
+1725   09D7 8D 04       	mov	y, #INS_ENVLEN			; test for envelope
+1726   09D9 F7 DD       	mov	a, [p_instr]+y			;
+1727   09DB C4 02       	mov	m0, a
+1728   09DD             
+1729   09DD D0 0D       	bne	_envelope_valid			;if no envelope:
+1730   09DF 8F FF DC    	mov	t_env, #255			; set to max
+1731   09E2             
+1732   09E2 F4 85       	mov	a, ch_flags+x			; start fade on KEYOFF
+1733   09E4 28 10       	and	a, #CF_KEYON			;
+1734   09E6 F0 03       	beq	_env_quit			;
+1735   09E8 5F 97 0A    	jmp	_env_setfade			;
+1736   09EB             _env_quit:
+1737   09EB 6F          	ret					;
+1738   09EC             _envelope_valid:				;
+1739   09EC             
+1740   09EC F4 9D       	mov	a, ch_env_node+x		; read envelope node data
+1741   09EE             
+1742   09EE 60          	clrc					; m1/m2
+1743   09EF 88 08       	adc	a, #INS_ENVDATA			;
+1744   09F1 FD          	mov	y, a				;
+1745   09F2 F7 DD       	mov	a, [p_instr]+y			;
+1746   09F4 C4 04       	mov	m1, a				;
+1747   09F6 FC          	inc	y				;
+1748   09F7 F7 DD       	mov	a, [p_instr]+y			;
+1749   09F9 C4 05       	mov	m1+1, a				;
+1750   09FB FC          	inc	y				;
+1751   09FC F7 DD       	mov	a, [p_instr]+y			;
+1752   09FE C4 06       	mov	m2, a				;
+1753   0A00 FC          	inc	y				;
+1754   0A01 F7 DD       	mov	a, [p_instr]+y			;
+1755   0A03 C4 07       	mov	m2+1, a				;
+1756   0A05             
+1757   0A05 01          	SPROC
+1758   0A06 F4 A5       	mov	a, ch_env_tick+x		; test zero/nonzero tick
+1759   0A08 D0 0A       	bne	_env_nonzero_tick		;
+1760   0A0A             						;ZEROTICK:
+1761   0A0A E4 04       	mov	a, m1				; copy Y level
+1762   0A0C D4 95       	mov	ch_env_y_h+x, a			;
+1763   0A0E E8 00       	mov	a, #0				;
+1764   0A10 D4 8D       	mov	ch_env_y_l+x, a			;
+1765   0A12 2F 25       	bra	_env_zerotick			;
+1766   0A14             
+1767   0A14             _env_nonzero_tick:				;NONZERO:
+1768   0A14 F4 8D       	mov	a, ch_env_y_l+x
+1769   0A16 60          	clrc
+1770   0A17 84 06       	adc	a, m2
+1771   0A19 D4 8D       	mov	ch_env_y_l+x, a
+1772   0A1B F4 95       	mov	a, ch_env_y_h+x
+1773   0A1D 84 07       	adc	a, m2+1
+1774   0A1F             
+1775   0A1F 10 08       	bpl	_catch_negative			; clamp result 0.0->64.0
+1776   0A21 E8 00       	mov	a, #0				;
+1777   0A23 D4 95       	mov	ch_env_y_h+x, a			;
+1778   0A25 D4 8D       	mov	ch_env_y_l+x, a			;
+1779   0A27 2F 10       	bra	_env_zerotick			;
+1780   0A29             _catch_negative:				;
+1781   0A29 68 40       	cmp	a, #64				;
+1782   0A2B 90 0A       	bcc	_catch_plus			;
+1783   0A2D E8 40       	mov	a, #64				;
+1784   0A2F D4 95       	mov	ch_env_y_h+x, a			;
+1785   0A31 E8 00       	mov	a, #0				;
+1786   0A33 D4 8D       	mov	ch_env_y_l+x, a			;
+1787   0A35 2F 02       	bra	_env_zerotick			;
+1788   0A37             _catch_plus:					;
+1789   0A37             						;
+1790   0A37 D4 95       	mov	ch_env_y_h+x, a			;
+1791   0A39             
+1792   0A39             _env_zerotick:
+1793   0A39             
+1794   0A39 F4 8D       	mov	a, ch_env_y_l+x			; t_env = env << 2
+1795   0A3B C4 04       	mov	m1, a				;
+1796   0A3D F4 95       	mov	a, ch_env_y_h+x			;
+1797   0A3F 0B 04       	asl	m1				;
+1798   0A41 3C          	rol	a				;
+1799   0A42 0B 04       	asl	m1				;
+1800   0A44 3C          	rol	a				;
+1801   0A45             
+1802   0A45 90 02       	bcc	_env_shift_clamp		; clamp to 255
+1803   0A47 E8 FF       	mov	a, #255				;
+1804   0A49             _env_shift_clamp:				;
+1805   0A49 C4 DC       	mov	t_env, a			;
+1806   0A4B             
+1807   0A4B F4 85       	mov	a, ch_flags+x			; dont advance if "keyon" and node=sustain
+1808   0A4D 28 10       	and	a, #CF_KEYON			;
+1809   0A4F F0 09       	beq	_env_nsustain			;
+1810   0A51 8D 05       	mov	y, #INS_ENVSUS			;
+1811   0A53 F7 DD       	mov	a, [p_instr]+y			;
+1812   0A55 74 9D       	cmp	a, ch_env_node+x		;
+1813   0A57 D0 01       	bne	_env_nsustain			;
+1814   0A59 6F          	ret					;
+1815   0A5A             _env_nsustain:					;
+1816   0A5A             
+1817   0A5A BB A5       	inc	ch_env_tick+x			; increment tick
+1818   0A5C F4 A5       	mov	a, ch_env_tick+x		;
+1819   0A5E 64 05       	cmp	a, m1+1				; exit if < duration
+1820   0A60 90 3B       	bcc	_env_exit			;
+1821   0A62             
+1822   0A62 E8 00       	mov	a, #0				; reset tick
+1823   0A64 D4 A5       	mov	ch_env_tick+x, a		;
+1824   0A66             
+1825   0A66 8D 07       	mov	y, #INS_ENVLOOPEND		; turn on FADE if keyoff and loop
+1826   0A68 F7 DD       	mov	a, [p_instr]+y			;
+1827   0A6A 68 FF       	cmp	a, #255				;
+1828   0A6C F0 19       	beq	_env_no_loop			;
+1829   0A6E F4 85       	mov	a, ch_flags+x			;	
+1830   0A70 28 10       	and	a, #CF_KEYON			;	
+1831   0A72 D0 06       	bne	_env_no_fade			;	
+1832   0A74 F4 85       	mov	a, ch_flags+x			;
+1833   0A76 08 20       	or	a, #CF_FADE			;
+1834   0A78 D4 85       	mov	ch_flags+x, a			;
+1835   0A7A             _env_no_fade:
+1836   0A7A             
+1837   0A7A F4 9D       	mov	a, ch_env_node+x		; test for loop point
+1838   0A7C             ;	mov	y, #INS_ENVLOOPEND		;
+1839   0A7C 77 DD       	cmp	a, [p_instr]+y			;
+1840   0A7E D0 07       	bne	_env_loop_test			;
+1841   0A80 8D 06       	mov	y, #INS_ENVLOOPST
+1842   0A82 F7 DD       	mov	a, [p_instr]+y
+1843   0A84 D4 9D       	mov	ch_env_node+x, a
+1844   0A86 6F          	ret
+1845   0A87             _env_loop_test:					;
+1846   0A87             _env_no_loop:
+1847   0A87             
+1848   0A87 F4 9D       	mov	a, ch_env_node+x
+1849   0A89 80          	setc					; suspicious...
+1850   0A8A B8 04 02    	sbc	m0, #4
+1851   0A8D 64 02       	cmp	a, m0				; test for envelope end
+1852   0A8F F0 06       	beq	_env_setfade			;
+1853   0A91 60          	clrc					; increment node
+1854   0A92 88 04       	adc	a, #4				;
+1855   0A94 D4 9D       	mov	ch_env_node+x, a		;
+1856   0A96             
+1857   0A96 6F          	ret
+1858   0A97             
+1859   0A97             _env_setfade:
+1860   0A97 F4 85       	mov	a, ch_flags+x
+1861   0A99 08 20       	or	a, #CF_FADE
+1862   0A9B D4 85       	mov	ch_flags+x, a
+1863   0A9D             _env_exit:					;
+1864   0A9D 6F          	ret
+1865   0A9E             
+1866   0A9E             ;********************************************************
+1867   0A9E             Channel_ProcessVolumeCommand:
+1868   0A9E             ;********************************************************
+1869   0A9E F4 35       	mov	a, ch_volume+x
+1870   0AA0 FB 65       	mov	y, ch_vcmd+x
+1871   0AA2 CB 02       	mov	m0, y
+1872   0AA4 3F AA 0A    	call	do_vcmd
+1873   0AA7 D4 35       	mov	ch_volume+x, a
+1874   0AA9 6F          	ret
+1875   0AAA             
+1876   0AAA             do_vcmd:
+1877   0AAA AD 41       	cmp	y, #65
+1878   0AAC 90 19       	bcc	vcmd_setvol
+1879   0AAE AD 4B       	cmp	y, #75
+1880   0AB0 90 1C       	bcc	vcmd_finevolup
+1881   0AB2 AD 55       	cmp	y, #85
+1882   0AB4 90 29       	bcc	vcmd_finevoldown
+1883   0AB6 AD 5F       	cmp	y, #95
+1884   0AB8 90 34       	bcc	vcmd_volup
+1885   0ABA AD 69       	cmp	y, #105
+1886   0ABC 90 3A       	bcc	vcmd_voldown
+1887   0ABE AD C1       	cmp	y, #193
+1888   0AC0 B0 04       	bcs	vcmd_invalid
+1889   0AC2 AD 80       	cmp	y, #128
+1890   0AC4 B0 3C       	bcs	vcmd_pan
+1891   0AC6             vcmd_invalid:
+1892   0AC6 6F          	ret
+1893   0AC7             
+1894   0AC7             ;--------------------------------------------------------
+1895   0AC7             ; 00-64 set volume
+1896   0AC7             ;--------------------------------------------------------
+1897   0AC7             vcmd_setvol:
+1898   0AC7 78 00 18    	cmp	mod_tick, #0		; a = volume
+1899   0ACA D0 01       	bne	exit_vcmd		;
+1900   0ACC DD          	mov	a, y			;
+1901   0ACD             exit_vcmd:				;
+1902   0ACD 6F          	ret				;
+1903   0ACE             
+1904   0ACE             ;--------------------------------------------------------
+1905   0ACE             ; 65-74 fine vol up
+1906   0ACE             ;--------------------------------------------------------
+1907   0ACE             vcmd_finevolup:
+1908   0ACE B8 41 02    	sbc	m0, #65			; m0 = rate (-1)
+1909   0AD1             
+1910   0AD1 78 00 18    	cmp	mod_tick, #0
+1911   0AD4 D0 F7       	bne	exit_vcmd
+1912   0AD6             
+1913   0AD6             _vcmd_add_sat64:
+1914   0AD6 84 02       	adc	a, m0			; a += rate (+1)
+1915   0AD8 68 41       	cmp	a, #65			; saturate to 64
+1916   0ADA 90 F1       	bcc	exit_vcmd		;
+1917   0ADC E8 40       	mov	a, #64			;
+1918   0ADE 6F          	ret				;
+1919   0ADF             
+1920   0ADF             ;--------------------------------------------------------
+1921   0ADF             ; 75-84 fine vol down
+1922   0ADF             ;--------------------------------------------------------
+1923   0ADF             vcmd_finevoldown:
+1924   0ADF B8 4A 02    	sbc	m0, #75-1		; m0 = rate [carry is cleared]
+1925   0AE2             
+1926   0AE2 78 00 18    	cmp	mod_tick, #0
+1927   0AE5 D0 E6       	bne	exit_vcmd
+1928   0AE7             
+1929   0AE7             _vcmd_sub_sat0:	
+1930   0AE7 A4 02       	sbc	a, m0			; a -= rate
+1931   0AE9 B0 E2       	bcs	exit_vcmd		; saturate lower bound to 0
+1932   0AEB E8 00       	mov	a, #0			;
+1933   0AED 6F          	ret				;
+1934   0AEE             
+1935   0AEE             ;--------------------------------------------------------
+1936   0AEE             ; 85-94 vol up
+1937   0AEE             ;--------------------------------------------------------
+1938   0AEE             vcmd_volup:
+1939   0AEE B8 55 02    	sbc	m0, #85			; m0 = rate (-1)
+1940   0AF1 78 00 18    	cmp	mod_tick, #0
+1941   0AF4 F0 D7       	beq	exit_vcmd
+1942   0AF6 2F DE       	bra	_vcmd_add_sat64
+1943   0AF8             
+1944   0AF8             ;--------------------------------------------------------
+1945   0AF8             ; 95-104 vol down
+1946   0AF8             ;--------------------------------------------------------
+1947   0AF8             vcmd_voldown:
+1948   0AF8 B8 5E 02    	sbc	m0, #95-1
+1949   0AFB 78 00 18    	cmp	mod_tick, #0
+1950   0AFE F0 CD       	beq	exit_vcmd
+1951   0B00 2F E5       	bra	_vcmd_sub_sat0
+1952   0B02             
+1953   0B02             ;--------------------------------------------------------
+1954   0B02             ; 128-192 set pan
+1955   0B02             ;--------------------------------------------------------
+1956   0B02             vcmd_pan:
+1957   0B02 78 00 18    	cmp	mod_tick, #0		; set panning
+1958   0B05 D0 C6       	bne	exit_vcmd		;
+1959   0B07 2D          	push	a			;
+1960   0B08 DD          	mov	a, y			;
+1961   0B09 A8 80       	sbc	a, #128			;
+1962   0B0B 3F 43 0F    	call	Command_SetPanningb	; Bugfix by KungFuFurby 12/20/15
+1963   0B0E AE          	pop	a			; column.
+1964   0B0F 6F          	ret				;
+1965   0B10             
+1966   0B10             command_memory_map:	
+1967   0B10 000000102020	.byte 00h, 00h, 00h, 10h, 20h, 20h, 30h, 70h, 00h
+1967   0B16 307000
+1968   0B19             	;       A    B    C    D    E    F    G    H    I
+1969   0B19 401010001050	.byte 40h, 10h, 10h, 00h, 10h, 50h, 10h, 80h, 70h
+1969   0B1F 108070
+1970   0B22             	;       J    K    L    M    N    O    P    Q    R
+1971   0B22 600070001000	.byte 60h, 00h, 70h, 00h, 10h, 00h, 70h, 00h
+1971   0B28 7000
+1972   0B2A             	;       S    T    U    V    W    X    Y    Z
+1973   0B2A             
+1974   0B2A             ;********************************************************
+1975   0B2A             Channel_ProcessCommandMemory:
+1976   0B2A             ;********************************************************
+1977   0B2A             
+1978   0B2A FB 6D       	mov	y, ch_command+x
+1979   0B2C             
+1980   0B2C F6 0F 0B    	mov	a, !command_memory_map-1+y
+1981   0B2F F0 3E       	beq	_cpc_quit		; 0 = no memory!
+1982   0B31 D8 02       	mov	m0, x
+1983   0B33 60          	clrc
+1984   0B34 84 02       	adc	a, m0
+1985   0B36 FD          	mov	y, a
+1986   0B37             
+1987   0B37             
+1988   0B37 AD 70       	cmp	y, #70h			; <7 : single param
+1989   0B39 90 27       	bcc	_cpcm_single		;
+1990   0B3B             ;--------------------------------------------------------
+1991   0B3B             _cpcm_double:				; >=7: double param
+1992   0B3B             ;--------------------------------------------------------
+1993   0B3B             
+1994   0B3B F6 30 03    	mov	a, !PatternMemory-10h+y
+1995   0B3E C4 02       	mov	m0, a
+1996   0B40 F4 75       	mov	a, ch_param+x
+1997   0B42 68 10       	cmp	a, #10h
+1998   0B44 90 09       	bcc	_cpcmd_h_clr
+1999   0B46 2D          	push	a
+2000   0B47 38 0F 02    	and	m0, #0Fh
+2001   0B4A 04 02       	or	a, m0
+2002   0B4C C4 02       	mov	m0, a
+2003   0B4E AE          	pop	a
+2004   0B4F             _cpcmd_h_clr:
+2005   0B4F 28 0F       	and	a, #0Fh
+2006   0B51 F0 07       	beq	_cpcmd_l_clr
+2007   0B53 38 F0 02    	and	m0, #0F0h
+2008   0B56 04 02       	or	a, m0
+2009   0B58 C4 02       	mov	m0, a
+2010   0B5A             _cpcmd_l_clr:
+2011   0B5A E4 02       	mov	a, m0
+2012   0B5C D4 75       	mov	ch_param+x, a
+2013   0B5E D6 30 03    	mov	!PatternMemory-10h+y, a
+2014   0B61 6F          	ret
+2015   0B62             ;--------------------------------------------------------
+2016   0B62             _cpcm_single:
+2017   0B62             ;--------------------------------------------------------
+2018   0B62             
+2019   0B62 F4 75       	mov	a, ch_param+x
+2020   0B64 F0 04       	beq	_cpcms_clear
+2021   0B66 D6 30 03    	mov	!PatternMemory-10h+y, a
+2022   0B69 6F          	ret
+2023   0B6A             _cpcms_clear:
+2024   0B6A F6 30 03    	mov	a, !PatternMemory-10h+y
+2025   0B6D D4 75       	mov	ch_param+x, a	
+2026   0B6F             _cpc_quit:
+2027   0B6F 6F          	ret
+2028   0B70             
+2029   0B70             ;********************************************************
+2030   0B70             Channel_ProcessCommand:
+2031   0B70             ;********************************************************
+2032   0B70             
+2033   0B70 F4 6D       	mov	a, ch_command+x		; exit if cmd = 0 
+2034   0B72 F0 FB       	beq	_cpc_quit		;
+2035   0B74             
+2036   0B74 78 00 18    	cmp	mod_tick, #0		; process MEMORY on t0
+2037   0B77 D0 03       	bne	_cpc_nott0		;
+2038   0B79 3F 2A 0B    	call	Channel_ProcessCommandMemory
+2039   0B7C             _cpc_nott0:
+2040   0B7C             
+2041   0B7C FB 6D       	mov	y, ch_command+x		; setup jump address
+2042   0B7E F6 90 0B    	mov	a, !CMD_JUMPTABLE_L-1+y	;
+2043   0B81 C5 8F 0B    	mov	!cpc_jump+1, a		;
+2044   0B84 F6 AA 0B    	mov	a, !CMD_JUMPTABLE_H-1+y	;
+2045   0B87 C5 90 0B    	mov	!cpc_jump+2, a		;
+2046   0B8A             
+2047   0B8A F4 75       	mov	a, ch_param+x		; preload data
+2048   0B8C EB 18       	mov	y, mod_tick		;
+2049   0B8E             
+2050   0B8E             	;-------------------------------
+2051   0B8E             	; a = param
+2052   0B8E             	; y = tick
+2053   0B8E             	; Z = tick=0
+2054   0B8E             	;-------------------------------
+2055   0B8E             	
+2056   0B8E             cpc_jump:
+2057   0B8E 5F 11 00    	jmp	$0011
+2058   0B91             	
+2059   0B91             ; note: tasm has some kind of bug that removes the 16th character
+2060   0B91             ; in macro args (...?)
+2061   0B91             ;-----------------------------------------------------------------------
+2062   0B91             CMD_JUMPTABLE_L:
+2063   0B91             ;-----------------------------------------------------------------------
+2064   0B91 C5          	.byte	LBYTE(Command_SetSpeed)			; Axx
+2065   0B92 CE          	.byte	LBYTE(Command_SetPositXion)		; Bxx
+2066   0B93 D6          	.byte	LBYTE(Command_PatternBXreak)		; Cxx
+2067   0B94 E8          	.byte	LBYTE(Command_VolumeSlXide)		; Dxy
+2068   0B95 F6          	.byte	LBYTE(Command_PitchSliXdeDown)		; Exy
+2069   0B96 11          	.byte	LBYTE(Command_PitchSliXdeUp)		; Fxy
+2070   0B97 2E          	.byte	LBYTE(Command_GlissandXo)		; Gxx
+2071   0B98 61          	.byte	LBYTE(Command_Vibrato)			; Hxy
+2072   0B99 15          	.byte	LBYTE(SCommand_Null)			; Ixy Tremor
+2073   0B9A FF          	.byte	LBYTE(Command_Arpeggio)			; Jxy
+2074   0B9B E1          	.byte	LBYTE(Command_VolumeSlXideVibrato)	; Kxy
+2075   0B9C 15          	.byte	LBYTE(SCommand_Null)			; Lxy VolumeSlideGliss
+2076   0B9D 33          	.byte	LBYTE(Command_SetChannXelVolume)	; Mxx
+2077   0B9E 45          	.byte	LBYTE(Command_ChannelVXolumeSlide)	; Nxy
+2078   0B9F 54          	.byte	LBYTE(Command_SampleOfXfset)		; Oxx
+2079   0BA0 59          	.byte	LBYTE(Command_PanningSXlide)		; Pxy
+2080   0BA1 68          	.byte	LBYTE(Command_RetriggeXrNote)		; Qxy
+2081   0BA2 15          	.byte	LBYTE(SCommand_Null)			; Rxy Tremolo
+2082   0BA3 FC          	.byte	LBYTE(Command_Extended)			; Sxy
+2083   0BA4 F1          	.byte	LBYTE(Command_Tempo)			; Txy
+2084   0BA5 15          	.byte	LBYTE(SCommand_Null)			; Uxy FineVibrato
+2085   0BA6 26          	.byte	LBYTE(Command_SetGlobaXlVolume)		; Vxx
+2086   0BA7 31          	.byte	LBYTE(Command_GlobalVoXlumeSlide)	; Wxy
+2087   0BA8 3D          	.byte	LBYTE(Command_SetPanniXng)		; Xxx
+2088   0BA9 15          	.byte	LBYTE(SCommand_Null)			; Yxy Panbrello
+2089   0BAA 4C          	.byte	LBYTE(Command_SetSR)			; Zxy was MidiMacro
+2090   0BAB             ;-----------------------------------------------------------------------
+2091   0BAB             CMD_JUMPTABLE_H:
+2092   0BAB             ;-----------------------------------------------------------------------
+2093   0BAB 0B          	.byte	HBYTE(Command_SetSpeed)			; Axx
+2094   0BAC 0B          	.byte	HBYTE(Command_SetPositXion)		; Bxx
+2095   0BAD 0B          	.byte	HBYTE(Command_PatternBXreak)		; Cxx
+2096   0BAE 0B          	.byte	HBYTE(Command_VolumeSlXide)		; Dxy
+2097   0BAF 0B          	.byte	HBYTE(Command_PitchSliXdeDown)		; Exy
+2098   0BB0 0C          	.byte	HBYTE(Command_PitchSliXdeUp)		; Fxy
+2099   0BB1 0C          	.byte	HBYTE(Command_GlissandXo)		; Gxx
+2100   0BB2 0C          	.byte	HBYTE(Command_Vibrato)			; Hxy
+2101   0BB3 0E          	.byte	HBYTE(SCommand_Null)			; Ixy Tremor
+2102   0BB4 0C          	.byte	HBYTE(Command_Arpeggio)			; Jxy
+2103   0BB5 0B          	.byte	HBYTE(Command_VolumeSlXideVibrato)	; Kxy
+2104   0BB6 0E          	.byte	HBYTE(SCommand_Null)		 	; Lxy VolumeSlideGliss
+2105   0BB7 0D          	.byte	HBYTE(Command_SetChannXelVolume)	; Mxx
+2106   0BB8 0D          	.byte	HBYTE(Command_ChannelVXolumeSlide)	; Nxy
+2107   0BB9 0D          	.byte	HBYTE(Command_SampleOfXfset)		; Oxx
+2108   0BBA 0D          	.byte	HBYTE(Command_PanningSXlide)		; Pxy
+2109   0BBB 0D          	.byte	HBYTE(Command_RetriggeXrNote)		; Qxy
+2110   0BBC 0E          	.byte	HBYTE(SCommand_Null)			; Rxy Tremolo
+2111   0BBD 0D          	.byte	HBYTE(Command_Extended)			; Sxy
+2112   0BBE 0E          	.byte	HBYTE(Command_Tempo)			; Txy
+2113   0BBF 0E          	.byte	HBYTE(SCommand_Null)			; Uxy FineVibrato
+2114   0BC0 0F          	.byte	HBYTE(Command_SetGlobaXlVolume)		; Vxx
+2115   0BC1 0F          	.byte	HBYTE(Command_GlobalVoXlumeSlide)	; Wxy
+2116   0BC2 0F          	.byte	HBYTE(Command_SetPanniXng)		; Xxx
+2117   0BC3 0E          	.byte	HBYTE(SCommand_Null)			; Yxy Panbrello
+2118   0BC4 0F          	.byte	HBYTE(Command_SetSR)			; was Zxy MidiMacro
+2119   0BC5             
+2120   0BC5             ;=======================================================================
+2121   0BC5             Command_SetSpeed:				; Axx
+2122   0BC5             ;=======================================================================
+2123   0BC5 D0 06       	bne	cmd_exit1			;on tick0:
+2124   0BC7 68 00       	cmp	a, #0				; if param != 0
+2125   0BC9 F0 02       	beq	cmd_exit1			; mod_speed = param
+2126   0BCB C4 1C       	mov	mod_speed, a			;
+2127   0BCD             cmd_exit1:					;
+2128   0BCD 6F          	ret					;
+2129   0BCE             ;=======================================================================
+2130   0BCE             Command_SetPosition:				; Bxx
+2131   0BCE             ;=======================================================================
+2132   0BCE D0 FD       	bne	cmd_exit1			;on tick0:
+2133   0BD0 C4 23       	mov	pattjump_index, a		; set jump index
+2134   0BD2 8F 01 22    	mov	pattjump_enable, #1		; enable pattern jump
+2135   0BD5 6F          	ret					;
+2136   0BD6             ;=======================================================================
+2137   0BD6             Command_PatternBreak:				; Cxx
+2138   0BD6             ;=======================================================================
+2139   0BD6             	; nonzero params are not supported
+2140   0BD6             	;
+2141   0BD6 D0 F5       	bne	cmd_exit1			;on tick0:
+2142   0BD8 FA 1A 23    	mov	pattjump_index, mod_position	; index = position+1
+2143   0BDB AB 23       	inc	pattjump_index			; enable pattern jump(break)
+2144   0BDD 8F 01 22    	mov	pattjump_enable, #1		;
+2145   0BE0 6F          	ret
+2146   0BE1             ;=======================================================================
+2147   0BE1             Command_VolumeSlideVibrato:			; Kxy
+2148   0BE1             ;=======================================================================
+2149   0BE1 3F 61 0C    	call	Command_Vibrato
+2150   0BE4             
+2151   0BE4 F4 75       	mov	a, ch_param+x
+2152   0BE6 EB 18       	mov	y, mod_tick
+2153   0BE8             ;=======================================================================
+2154   0BE8             Command_VolumeSlide:				; Dxy
+2155   0BE8             ;=======================================================================
+2156   0BE8 FA D7 02    	mov	m0, t_volume			; slide volume
+2157   0BEB 8F 40 03    	mov	m0+1, #64			;
+2158   0BEE 3F 4F 0F    	call	DoVolumeSlide			;
+2159   0BF1 C4 D7       	mov	t_volume, a			;
+2160   0BF3 D4 35       	mov	ch_volume+x, a			;
+2161   0BF5 6F          	ret					;
+2162   0BF6             ;=======================================================================
+2163   0BF6             Command_PitchSlideDown:				; Exy
+2164   0BF6             ;=======================================================================
+2165   0BF6 3F BA 0F    	call	PitchSlide_Load			; m0 = slide amount
+2166   0BF9 BA D9       	movw	ya, t_pitch			; pitch -= m0
+2167   0BFB 9A 02       	subw	ya, m0				;
+2168   0BFD 30 07       	bmi	_exx_zero			; saturate lower to 0
+2169   0BFF DA D9       	movw	t_pitch, ya			;
+2170   0C01 D4 25       	mov	ch_pitch_l+x, a			;
+2171   0C03 DB 2D       	mov	ch_pitch_h+x, y			;
+2172   0C05 6F          	ret					;
+2173   0C06             ;---------------------------------------------------------------------
+2174   0C06             _exx_zero:
+2175   0C06             ;---------------------------------------------------------------------
+2176   0C06 E8 00       	mov	a, #0				; zero pitch
+2177   0C08 8D 00       	mov	y, #0				;
+2178   0C0A DA D9       	movw	t_pitch, ya			;
+2179   0C0C D4 25       	mov	ch_pitch_l+x, a			;
+2180   0C0E D4 2D       	mov	ch_pitch_h+x, a			;
+2181   0C10 6F          	ret					;
+2182   0C11             ;=======================================================================
+2183   0C11             Command_PitchSlideUp:				; Fxy
+2184   0C11             ;=======================================================================
+2185   0C11 3F BA 0F    	call	PitchSlide_Load			; m0 = slide amount
+2186   0C14 BA D9       	movw	ya, t_pitch			;
+2187   0C16 7A 02       	addw	ya, m0				;
+2188   0C18 AD 1A       	cmp	y, #01Ah			;
+2189   0C1A B0 07       	bcs	_fxx_max			; clamp upper bound to 1A00H
+2190   0C1C DA D9       	movw	t_pitch, ya			;
+2191   0C1E D4 25       	mov	ch_pitch_l+x, a			;
+2192   0C20 DB 2D       	mov	ch_pitch_h+x, y			;
+2193   0C22 6F          	ret					;
+2194   0C23             ;-----------------------------------------------------------------------
+2195   0C23             _fxx_max:
+2196   0C23             ;-----------------------------------------------------------------------
+2197   0C23 8D 1A       	mov	y, #01Ah			; max pitch
+2198   0C25 E8 00       	mov	a, #0				;
+2199   0C27 DA D9       	movw	t_pitch, ya			;
+2200   0C29 D4 25       	mov	ch_pitch_l+x, a			;
+2201   0C2B DB 2D       	mov	ch_pitch_h+x, y			;
+2202   0C2D 6F          	ret					;
+2203   0C2E             ;=======================================================================
+2204   0C2E             Command_Glissando:				; Gxx
+2205   0C2E             ;=======================================================================
+2206   0C2E F0 9D       	beq	cmd_exit1			; on tickn:
+2207   0C30             
+2208   0C30 3F C6 0F    	call	Amult4_M0			; m0 = xx*4 (slide amount)
+2209   0C33             
+2210   0C33 F4 55       	mov	a, ch_note+x			; m1 = slide target
+2211   0C35 8F 00 04    	mov	m1, #0				;
+2212   0C38 5C          	lsr	a				;
+2213   0C39 6B 04       	ror	m1				;
+2214   0C3B 5C          	lsr	a				;
+2215   0C3C 6B 04       	ror	m1				;
+2216   0C3E C4 05       	mov	m1+1, a				;
+2217   0C40             
+2218   0C40 BA D9       	movw	ya, t_pitch			; test slide direction
+2219   0C42 5A 04       	cmpw	ya, m1				;
+2220   0C44 90 0F       	bcc	_gxx_slideup
+2221   0C46             ;-----------------------------------------------
+2222   0C46             _gxx_slidedown:
+2223   0C46             ;-----------------------------------------------
+2224   0C46 9A 02       	subw	ya, m0				; subtract xx*4 from pitch
+2225   0C48 30 13       	bmi	_gxx_set			; saturate lower to target pitch
+2226   0C4A 5A 04       	cmpw	ya, m1				;
+2227   0C4C 90 0F       	bcc	_gxx_set			;
+2228   0C4E             _gxx_set2:					;
+2229   0C4E DA D9       	movw	t_pitch, ya			;
+2230   0C50 D4 25       	mov	ch_pitch_l+x, a			;
+2231   0C52 DB 2D       	mov	ch_pitch_h+x, y			;
+2232   0C54 6F          	ret					;
+2233   0C55             ;-----------------------------------------------
+2234   0C55             _gxx_slideup:
+2235   0C55             ;-----------------------------------------------
+2236   0C55 7A 02       	addw	ya, m0				; add xx*4 to pitch
+2237   0C57 5A 04       	cmpw	ya, m1				; saturate upper to target pitch
+2238   0C59 B0 02       	bcs	_gxx_set			;
+2239   0C5B 2F F1       	bra	_gxx_set2			;
+2240   0C5D             ;-----------------------------------------------
+2241   0C5D             _gxx_set:					; pitch = target
+2242   0C5D             ;-----------------------------------------------
+2243   0C5D BA 04       	movw	ya, m1				;
+2244   0C5F 2F ED       	bra	_gxx_set2			;
+2245   0C61             
+2246   0C61             ;=======================================================================
+2247   0C61             Command_Vibrato:				; Hxy
+2248   0C61             ;=======================================================================
+2249   0C61 E8 70       	mov	a, #70h
+2250   0C63 D8 02       	mov	m0, x
+2251   0C65 60          	clrc
+2252   0C66 84 02       	adc	a, m0
+2253   0C68 FD          	mov	y, a
+2254   0C69 F6 30 03    	mov	a, !PatternMemory-10h+y
+2255   0C6C             
+2256   0C6C C4 02       	mov	m0, a
+2257   0C6E 38 0F 02    	and	m0, #0Fh
+2258   0C71             
+2259   0C71 5C          	lsr	a				; cmem += x*4
+2260   0C72 5C          	lsr	a				;
+2261   0C73 28 3C       	and	a, #111100b			;
+2262   0C75 60          	clrc					;
+2263   0C76 94 4D       	adc	a, ch_cmem+x			;
+2264   0C78 D4 4D       	mov	ch_cmem+x, a			;
+2265   0C7A             
+2266   0C7A FD          	mov	y, a				; a = sine[cmem]
+2267   0C7B             
+2268   0C7B F4 B5       	mov	a, ch_vib_wav+x
+2269   0C7D C4 04       	mov	m1, a
+2270   0C7F F4 AD       	mov	a, ch_env_vib+x
+2271   0C81             
+2272   0C81 68 01       	cmp	a, #1
+2273   0C83 F0 32       	beq	_hxx_ramp_down
+2274   0C85 68 02       	cmp	a, #2
+2275   0C87 F0 22       	beq	_hxx_sq
+2276   0C89 68 04       	cmp	a, #4
+2277   0C8B F0 16       	beq	_hxx_tri
+2278   0C8D             
+2279   0C8D             _hxx_sine:                                      ; 0
+2280   0C8D AD 80       	cmp	y, #80h	
+2281   0C8F B0 05       	bcs	_hxx_sine_neg
+2282   0C91 F6 13 16    	mov	a, !IT_FineSineData+y		; copy positive values
+2283   0C94 2F 37       	bra	_hxx_bpl
+2284   0C96             
+2285   0C96             _hxx_sine_neg:
+2286   0C96 DD          	mov	a, y				; IT_FineSineData is only 128
+2287   0C97 60          	clrc					; bytes long, once the end is
+2288   0C98 A8 7F       	sbc	a, #127				; reached reset to the start
+2289   0C9A FD          	mov	y, a				;
+2290   0C9B F6 13 16    	mov	a, !IT_FineSineData+y		; copy positive values
+2291   0C9E 48 FF       	eor	a, #0FFh			; ...and make them negative
+2292   0CA0 BC          	inc	a
+2293   0CA1 2F 2A       	bra	_hxx_bpl
+2294   0CA3             
+2295   0CA3             _hxx_tri:
+2296   0CA3 AD C0       	cmp	y, #0c0h
+2297   0CA5 B0 1E       	bcs	_inc_m1_hxx_bpl
+2298   0CA7 AD 40       	cmp	y, #040h
+2299   0CA9 B0 1E       	bcs	_dec_m1_hxx_bpl
+2300   0CAB             
+2301   0CAB             _hxx_sq:					; 2
+2302   0CAB AD 80       	cmp	y, #80h
+2303   0CAD 90 04       	bcc	_hxx_pos_sq
+2304   0CAF             
+2305   0CAF             _hxx_neg_sq:
+2306   0CAF E8 00       	mov	a, #default_sq_neg
+2307   0CB1 2F 1A       	bra	_hxx_bpl
+2308   0CB3             _hxx_pos_sq:
+2309   0CB3 E8 40       	mov	a, #default_sq_pos
+2310   0CB5 2F 16       	bra	_hxx_bpl
+2311   0CB7             
+2312   0CB7             _hxx_ramp_down:					; 1
+2313   0CB7 AD 00       	cmp	y, #0
+2314   0CB9 D0 03       	bne	_hxx_chk_ramp
+2315   0CBB             _hxx_res_ramp:
+2316   0CBB 8F 40 04    	mov	m1, #default_ramp_pos
+2317   0CBE             _hxx_chk_ramp:
+2318   0CBE 78 BF 04    	cmp	m1, #default_ramp_neg
+2319   0CC1 F0 F8       	beq	_hxx_res_ramp
+2320   0CC3             _hxx_dec_ramp:
+2321   0CC3 2F 04       	bra	_dec_m1_hxx_bpl
+2322   0CC5             
+2323   0CC5             _inc_m1_hxx_bpl:
+2324   0CC5 AB 04               inc	m1
+2325   0CC7 2F 02       	bra	_hxx_bpl_movm1a
+2326   0CC9             _dec_m1_hxx_bpl:
+2327   0CC9 8B 04       	dec	m1
+2328   0CCB             _hxx_bpl_movm1a:
+2329   0CCB E4 04       	mov	a, m1
+2330   0CCD             _hxx_bpl:
+2331   0CCD D4 B5       	mov	ch_vib_wav+x, a
+2332   0CCF 10 10       	bpl	_hxx_plus
+2333   0CD1             
+2334   0CD1             _hxx_neg:
+2335   0CD1 48 FF       	eor	a, #255
+2336   0CD3 BC          	inc	a
+2337   0CD4             
+2338   0CD4 3F F2 0C    	call	_hxx_mulya
+2339   0CD7 C4 02       	mov	m0, a
+2340   0CD9             
+2341   0CD9             
+2342   0CD9             
+2343   0CD9             
+2344   0CD9             
+2345   0CD9             
+2346   0CD9             
+2347   0CD9             
+2348   0CD9             _hxx_subw:
+2349   0CD9 BA D9       	movw	ya, t_pitch
+2350   0CDB 9A 02       	subw	ya, m0
+2351   0CDD 30 0C       	bmi	_hxx_zero
+2352   0CDF 2F 07       	bra	_store_pitch
+2353   0CE1             
+2354   0CE1             _hxx_plus:
+2355   0CE1 3F F2 0C    	call	_hxx_mulya
+2356   0CE4 EB 03       	mov	y, m0+1
+2357   0CE6             
+2358   0CE6             
+2359   0CE6             
+2360   0CE6             
+2361   0CE6             
+2362   0CE6             
+2363   0CE6             
+2364   0CE6             
+2365   0CE6             _hxx_addw:
+2366   0CE6 7A D9       	addw	ya, t_pitch			; warning: might break something on highest note
+2367   0CE8             _store_pitch:
+2368   0CE8 DA D9       	movw	t_pitch, ya
+2369   0CEA 6F          	ret
+2370   0CEB             
+2371   0CEB             _hxx_zero:
+2372   0CEB 8F 00 D9    	mov	t_pitch, #0
+2373   0CEE 8F 00 DA    	mov	t_pitch+1, #0
+2374   0CF1 6F          	ret
+2375   0CF2             
+2376   0CF2             
+2377   0CF2             
+2378   0CF2             
+2379   0CF2             
+2380   0CF2             
+2381   0CF2             
+2382   0CF2             
+2383   0CF2             _hxx_mulya:
+2384   0CF2 EB 02       	mov	y, m0
+2385   0CF4 CF          	mul	ya
+2386   0CF5 CB 03       	mov	m0+1, y
+2387   0CF7 8D 04       	mov	y, #4
+2388   0CF9             _hxx_div:
+2389   0CF9 4B 03       	lsr	m0+1
+2390   0CFB 7C          	ror	a
+2391   0CFC FE FB       	dbnz	y, _hxx_div
+2392   0CFE 6F          	ret
+2393   0CFF             
+2394   0CFF             ;=======================================================================
+2395   0CFF             ;Command_Tremor:				; unimplemented
+2396   0CFF             ;=======================================================================
+2397   0CFF             	;ret
+2398   0CFF             
+2399   0CFF             ;=======================================================================
+2400   0CFF             Command_Arpeggio:				; Jxy
+2401   0CFF             ;=======================================================================
+2402   0CFF D0 05       	bne	_jxx_other
+2403   0D01 E8 00       	mov	a, #0
+2404   0D03 D4 4D       	mov	ch_cmem+x, a
+2405   0D05 6F          	ret
+2406   0D06             _jxx_other:
+2407   0D06 F4 4D       	mov	a, ch_cmem+x
+2408   0D08 BC          	inc	a
+2409   0D09 68 03       	cmp	a, #3
+2410   0D0B 90 02       	bcc	_jxx_less3
+2411   0D0D E8 00       	mov	a, #0
+2412   0D0F             _jxx_less3:
+2413   0D0F D4 4D       	mov	ch_cmem+x, a
+2414   0D11             
+2415   0D11 68 01       	cmp	a, #1
+2416   0D13 F0 03       	beq	_jxx_x
+2417   0D15 B0 17       	bcs	_jxx_y
+2418   0D17 6F          	ret
+2419   0D18             
+2420   0D18             _jxx_x:
+2421   0D18 F4 75       	mov	a, ch_param+x
+2422   0D1A             
+2423   0D1A             _jxx_add:
+2424   0D1A             
+2425   0D1A 28 F0       	and	a, #0F0h
+2426   0D1C 1C          	asl	a
+2427   0D1D 8F 00 03    	mov	m0+1, #0
+2428   0D20 2B 03       	rol	m0+1
+2429   0D22 1C          	asl	a
+2430   0D23 2B 03       	rol	m0+1
+2431   0D25 C4 02       	mov	m0, a
+2432   0D27 BA D9       	movw	ya, t_pitch
+2433   0D29 7A 02       	addw	ya, m0
+2434   0D2B DA D9       	movw	t_pitch, ya
+2435   0D2D 6F          	ret
+2436   0D2E             _jxx_y:
+2437   0D2E F4 75       	mov	a, ch_param+x
+2438   0D30 9F          	xcn	a
+2439   0D31 2F E7       	bra	_jxx_add
+2440   0D33             
+2441   0D33             ;=======================================================================
+2442   0D33             ;Command_VolumeSlideGliss:			; unimplemented
+2443   0D33             ;=======================================================================
+2444   0D33             	;ret
+2445   0D33             
+2446   0D33             ;=======================================================================
+2447   0D33             Command_SetChannelVolume:			; Mxx
+2448   0D33             ;=======================================================================
+2449   0D33 D0 0C       	bne	cmd_exit2			; on tick0:
+2450   0D35 68 7F       	cmp	a, #7fh				;
+2451   0D37 B0 09       	bcs	_set_ad				;
+2452   0D39 68 41       	cmp	a, #65				;  cvolume = param > 64 ? 64 : param
+2453   0D3B 90 02       	bcc	cscv_under65			;
+2454   0D3D E8 40       	mov	a, #64				;
+2455   0D3F             cscv_under65:					;
+2456   0D3F D4 3D       	mov	ch_cvolume+x, a			;
+2457   0D41             cmd_exit2:
+2458   0D41 6F          	ret					;
+2459   0D42             
+2460   0D42             _set_ad:
+2461   0D42 D4 C5       	mov	ch_ad+x, a			;    M7f: direct gain [default]
+2462   0D44 6F          	ret					; M80-ff: sets AD values for current channel
+2463   0D45             
+2464   0D45             ;=======================================================================
+2465   0D45             Command_ChannelVolumeSlide:			; Nxy
+2466   0D45             ;=======================================================================
+2467   0D45 F4 3D       	mov	a, ch_cvolume+x			; slide channel volume
+2468   0D47 C4 02       	mov	m0, a				; 
+2469   0D49 8F 40 03    	mov	m0+1, #64			;
+2470   0D4C F4 75       	mov	a, ch_param+x			;
+2471   0D4E 3F 4F 0F    	call	DoVolumeSlide			;
+2472   0D51 D4 3D       	mov	ch_cvolume+x, a			;
+2473   0D53 6F          	ret					;
+2474   0D54             
+2475   0D54             ;=======================================================================
+2476   0D54             Command_SampleOffset:				; Oxx
+2477   0D54             ;=======================================================================
+2478   0D54 D0 EB       	bne	cmd_exit2			; on tick0:
+2479   0D56 C4 D6       	mov	t_sampoff, a			;   set sampoff data
+2480   0D58 6F          	ret					;
+2481   0D59             
+2482   0D59             ;=======================================================================
+2483   0D59             Command_PanningSlide:				; Pxy
+2484   0D59             ;=======================================================================
+2485   0D59 9F          	xcn	a
+2486   0D5A FA D8 02    	mov	m0, t_panning			; slide panning
+2487   0D5D 8F 40 03    	mov	m0+1, #64			;
+2488   0D60 3F 4F 0F    	call	DoVolumeSlide			;
+2489   0D63 C4 D8       	mov	t_panning, a			;
+2490   0D65 D4 45       	mov	ch_panning+x, a			;
+2491   0D67 6F          	ret					;
+2492   0D68             
+2493   0D68             ;=======================================================================
+2494   0D68             Command_RetriggerNote:				; Rxy
+2495   0D68             ;=======================================================================
+2496   0D68             
+2497   0D68 28 0F       	and	a, #0Fh				; m0 = y == 0 ? 1 : x
+2498   0D6A D0 01       	bne	_crn_x1				;
+2499   0D6C BC          	inc	a				;
+2500   0D6D             _crn_x1:					;	
+2501   0D6D C4 02       	mov	m0, a				;
+2502   0D6F             
+2503   0D6F F4 4D       	mov	a, ch_cmem+x			;if cmem is 0:
+2504   0D71 D0 05       	bne	_crn_cmem_n0			;  cmem = m0
+2505   0D73 E4 02       	mov	a, m0				;
+2506   0D75             _crn_count_ret:
+2507   0D75 D4 4D       	mov	ch_cmem+x, a			;
+2508   0D77 6F          	ret					;	
+2509   0D78             _crn_cmem_n0:					;else:
+2510   0D78 9C          	dec	a				; dec cmem until 0
+2511   0D79 D0 FA       	bne	_crn_count_ret			;
+2512   0D7B             						;RETRIGGER NOTE:
+2513   0D7B E4 02       	mov	a, m0				; cmem = m0
+2514   0D7D D4 4D       	mov	ch_cmem+x, a			;
+2515   0D7F             
+2516   0D7F             	;----------------------------------------
+2517   0D7F             	; affect volume
+2518   0D7F             	;----------------------------------------
+2519   0D7F F4 75       	mov	a, ch_param+x
+2520   0D81 9F          	xcn	a
+2521   0D82 28 0F       	and	a, #0Fh
+2522   0D84 C4 04       	mov	m1, a
+2523   0D86 1C          	asl	a
+2524   0D87 4D          	push	x
+2525   0D88 5D          	mov	x, a
+2526   0D89 E4 D7       	mov	a, t_volume
+2527   0D8B 60          	clrc
+2528   0D8C 1F 8F 0D    	jmp	[rnvtable+x]
+2529   0D8F             rnvtable:
+2530   0D8F C9 0D       	.word	rnv_0
+2531   0D91 AF 0D       	.word	rnv_1
+2532   0D93 B2 0D       	.word	rnv_2
+2533   0D95 B6 0D       	.word	rnv_3
+2534   0D97 BA 0D       	.word	rnv_4
+2535   0D99 BE 0D       	.word	rnv_5
+2536   0D9B C2 0D       	.word	rnv_6
+2537   0D9D C8 0D       	.word	rnv_7
+2538   0D9F C9 0D       	.word	rnv_8
+2539   0DA1 CB 0D       	.word	rnv_9
+2540   0DA3 CE 0D       	.word	rnv_A
+2541   0DA5 D2 0D       	.word	rnv_B
+2542   0DA7 D6 0D       	.word	rnv_C
+2543   0DA9 DA 0D       	.word	rnv_D
+2544   0DAB DE 0D       	.word	rnv_E
+2545   0DAD E4 0D       	.word	rnv_F
+2546   0DAF             
+2547   0DAF 9C          rnv_1:	dec	a
+2548   0DB0 2F 35       	bra	_rnv_sat0
+2549   0DB2 A8 01       rnv_2:	sbc	a, #2-1
+2550   0DB4 2F 31       	bra	_rnv_sat0
+2551   0DB6 A8 03       rnv_3:	sbc	a, #4-1
+2552   0DB8 2F 2D       	bra	_rnv_sat0
+2553   0DBA A8 07       rnv_4:	sbc	a, #8-1
+2554   0DBC 2F 29       	bra	_rnv_sat0
+2555   0DBE A8 0F       rnv_5:	sbc	a, #16-1
+2556   0DC0 2F 25       	bra	_rnv_sat0
+2557   0DC2 8D AA       rnv_6:	mov	y, #170
+2558   0DC4 CF          	mul	ya
+2559   0DC5 DD          	mov	a, y
+2560   0DC6 2F 2B       	bra	_rnv_set
+2561   0DC8 5C          rnv_7:	lsr	a
+2562   0DC9             rnv_8:
+2563   0DC9 2F 28       rnv_0:	bra	_rnv_set
+2564   0DCB BC          rnv_9:	inc	a
+2565   0DCC 2F 1F       	bra	_rnv_sat64
+2566   0DCE 88 02       rnv_A:	adc	a, #2
+2567   0DD0 2F 1B       	bra	_rnv_sat64
+2568   0DD2 88 04       rnv_B:	adc	a, #4
+2569   0DD4 2F 17       	bra	_rnv_sat64
+2570   0DD6 88 08       rnv_C:	adc	a, #8
+2571   0DD8 2F 13       	bra	_rnv_sat64
+2572   0DDA 88 10       rnv_D:	adc	a, #16
+2573   0DDC 2F 0F       	bra	_rnv_sat64
+2574   0DDE 8D 03       rnv_E:	mov	y, #3
+2575   0DE0 CF          	mul	ya
+2576   0DE1 5C          	lsr	a
+2577   0DE2 2F 09       	bra	_rnv_sat64
+2578   0DE4 1C          rnv_F:	asl	a
+2579   0DE5 2F 06       	bra	_rnv_sat64
+2580   0DE7             
+2581   0DE7             _rnv_sat0:
+2582   0DE7 10 0A       	bpl	_rnv_set
+2583   0DE9 E8 00       	mov	a, #0
+2584   0DEB 2F 06       	bra	_rnv_set
+2585   0DED             _rnv_sat64:
+2586   0DED 68 41       	cmp	a, #65
+2587   0DEF 90 02       	bcc	_rnv_set
+2588   0DF1 E8 40       	mov	a, #64
+2589   0DF3             _rnv_set:
+2590   0DF3 CE          	pop	x
+2591   0DF4 C4 D7       	mov	t_volume, a
+2592   0DF6 D4 35       	mov	ch_volume+x, a
+2593   0DF8 18 80 DB    	or	t_flags, #TF_START
+2594   0DFB             
+2595   0DFB 6F          	ret
+2596   0DFC             
+2597   0DFC             ;=======================================================================
+2598   0DFC             ;Command_Tremolo:				; unimplemented
+2599   0DFC             ;=======================================================================
+2600   0DFC             	;ret
+2601   0DFC             
+2602   0DFC             ;=======================================================================
+2603   0DFC             Command_Extended:				; Sxy
+2604   0DFC             ;=======================================================================
+2605   0DFC 9F          	xcn	a				; setup jump to:
+2606   0DFD 28 0F       	and	a, #0Fh				; CmdExTab[x]
+2607   0DFF FD          	mov	y, a				;
+2608   0E00 F6 16 0E    	mov	a, !CmdExTab_L+y		;
+2609   0E03 C5 13 0E    	mov	!cmdex_jmp+1, a			;
+2610   0E06 F6 26 0E    	mov	a, !CmdExTab_H+y		;
+2611   0E09             	;mov	a, HBYTE(SCommand_EPN)		; all commands are at $0exx
+2612   0E09 C5 14 0E    	mov	!cmdex_jmp+2, a			;
+2613   0E0C F4 75       	mov	a, ch_param+x			; a = y
+2614   0E0E 28 0F       	and	a, #0Fh				; y = tick
+2615   0E10 EB 18       	mov	y, mod_tick			; z = tick0
+2616   0E12             
+2617   0E12             cmdex_jmp:
+2618   0E12 5F 0B 0A    	jmp	0a0bh
+2619   0E15             
+2620   0E15             SCommand_Null:
+2621   0E15 6F          	ret
+2622   0E16             
+2623   0E16             CmdExTab_L:
+2624   0E16 36          	.byte	LBYTE(SCommand_EPN)		; S0x 0-4 Echo; 5-8 Pitch, 9-c Noise
+2625   0E17 7F          	.byte	LBYTE(SCommand_NoiseFrXeq1)	; S1x
+2626   0E18 7C          	.byte	LBYTE(SCommand_NoiseFrXeq2)	; S2x
+2627   0E19 8B          	.byte	LBYTE(SCommand_VibratoXWav)	; S3x
+2628   0E1A 15          	.byte	LBYTE(SCommand_Null)
+2629   0E1B 15          	.byte	LBYTE(SCommand_Null)
+2630   0E1C 15          	.byte	LBYTE(SCommand_Null)
+2631   0E1D 15          	.byte	LBYTE(SCommand_Null)
+2632   0E1E 92          	.byte	LBYTE(SCommand_Panning)		; S8x
+2633   0E1F A3          	.byte	LBYTE(SCommand_SoundCoXntrol)	; S9x
+2634   0E20 15          	.byte	LBYTE(SCommand_Null)
+2635   0E21 15          	.byte	LBYTE(SCommand_Null)
+2636   0E22 CC          	.byte	LBYTE(SCommand_NoteCut)		; SCx
+2637   0E23 D7          	.byte	LBYTE(SCommand_NoteDelXay)	; SDx
+2638   0E24 15          	.byte	LBYTE(SCommand_Null)
+2639   0E25 E6          	.byte	LBYTE(SCommand_Cue)		; SFx
+2640   0E26             CmdExTab_H:
+2641   0E26 0E          	.byte	HBYTE(SCommand_EPN)
+2642   0E27 0E          	.byte	HBYTE(SCommand_NoiseFrXeq1)
+2643   0E28 0E          	.byte	HBYTE(SCommand_NoiseFrXeq2)
+2644   0E29 0E          	.byte	HBYTE(SCommand_VibratoXWav)
+2645   0E2A 0E          	.byte	HBYTE(SCommand_Null)
+2646   0E2B 0E          	.byte	HBYTE(SCommand_Null)
+2647   0E2C 0E          	.byte	HBYTE(SCommand_Null)
+2648   0E2D 0E          	.byte	HBYTE(SCommand_Null)
+2649   0E2E 0E          	.byte	HBYTE(SCommand_Panning)
+2650   0E2F 0E          	.byte	HBYTE(SCommand_SoundCoXntrol)
+2651   0E30 0E          	.byte	HBYTE(SCommand_Null)
+2652   0E31 0E          	.byte	HBYTE(SCommand_Null)
+2653   0E32 0E          	.byte	HBYTE(SCommand_NoteCut)
+2654   0E33 0E          	.byte	HBYTE(SCommand_NoteDelXay)
+2655   0E34 0E          	.byte	HBYTE(SCommand_Null)
+2656   0E35 0E          	.byte	HBYTE(SCommand_Cue)
+2657   0E36             
+2658   0E36             ; S01 = turn on echo		S05 = turn on pitch	S09 = turn on noise
+2659   0E36             ; S02 = turn off echo		S06 = turn on picth	S0A = turn off noise
+2660   0E36             ; S03 = turn on echo for all	S07 = turn on pitch all	S0B = turn on noise all
+2661   0E36             ; S04 = turn off echo for all	S08 = turn off pitch "	S0C = turn off noise all
+2662   0E36             ;=======================================================================
+2663   0E36             SCommand_EPN:	; Echo / Pitchmod / Noise ; KFF added noise & pitch modulation
+2664   0E36             ;=======================================================================
+2665   0E36 68 09       	cmp	a, #09h			; do we need to do something with noise?
+2666   0E38 90 08       	bcc	pitch_mod
+2667   0E3A 8F 3D F2    	mov	SPC_DSPA, #DSP_NON
+2668   0E3D 60          	clrc
+2669   0E3E A8 07       	sbc	a, #7
+2670   0E40 2F 0F       	bra	skip_echo
+2671   0E42             pitch_mod:
+2672   0E42 68 05       	cmp	a, #5			; do we need to do something with pitchmod?
+2673   0E44 90 08       	bcc	SCommand_Echo
+2674   0E46 8F 2D F2    	mov	SPC_DSPA, #DSP_PMON
+2675   0E49 60          	clrc
+2676   0E4A A8 03       	sbc	a, #3
+2677   0E4C 2F 03       	bra	skip_echo
+2678   0E4E             ;=======================================================================
+2679   0E4E             SCommand_Echo:
+2680   0E4E             ;=======================================================================
+2681   0E4E 8F 4D F2    	mov	SPC_DSPA, #DSP_EON
+2682   0E51             skip_echo:
+2683   0E51 68 01       	cmp	a, #1
+2684   0E53 F0 0D       	beq	_sce_enable_one
+2685   0E55 90 12       	bcc	cmd_exit3
+2686   0E57 68 03       	cmp	a, #3
+2687   0E59 90 0F       	bcc	_sce_disable_one
+2688   0E5B F0 17       	beq	_sce_enable_all
+2689   0E5D 68 04       	cmp	a, #4
+2690   0E5F F0 17       	beq	_sce_disable_all
+2691   0E61 6F          	ret
+2692   0E62             _sce_enable_one:
+2693   0E62 F5 97 07    	mov	a, !BITS+x
+2694   0E65 04 F3       	or	a, SPC_DSPD
+2695   0E67 C4 F3       	mov	SPC_DSPD, a
+2696   0E69             cmd_exit3:
+2697   0E69 6F          	ret
+2698   0E6A             _sce_disable_one:
+2699   0E6A F5 97 07    	mov	a, !BITS+x
+2700   0E6D 48 FF       	eor	a, #255
+2701   0E6F 24 F3       	and	a, SPC_DSPD
+2702   0E71 C4 F3       	mov	SPC_DSPD, a
+2703   0E73 6F          	ret
+2704   0E74             _sce_enable_all:
+2705   0E74 8F FF F3    	mov	SPC_DSPD, #0FFh
+2706   0E77 6F          	ret
+2707   0E78             _sce_disable_all:
+2708   0E78 8F 00 F3    	mov	SPC_DSPD, #0
+2709   0E7B 6F          	ret
+2710   0E7C             ;=======================================================================
+2711   0E7C             SCommand_NoiseFreq2:	; This part added by KFF for noise generation
+2712   0E7C             ;=======================================================================
+2713   0E7C 60          	clrc
+2714   0E7D 88 10       	adc	a, #16
+2715   0E7F             ;=======================================================================
+2716   0E7F             SCommand_NoiseFreq1:	; This part added by KFF for noise generation
+2717   0E7F             ;=======================================================================
+2718   0E7F 8F 6C F2    	mov	SPC_DSPA, #DSP_FLG
+2719   0E82 38 E0 F3    	and	SPC_DSPD, #FLG_NOISE
+2720   0E85 C4 02       	mov	m0, a
+2721   0E87 09 02 F3    	or	SPC_DSPD, m0
+2722   0E8A 6F          	ret
+2723   0E8B             ;=======================================================================
+2724   0E8B             SCommand_VibratoWav:				; S3x
+2725   0E8B             ;=======================================================================
+2726   0E8B D4 AD       	mov	ch_env_vib+x, a
+2727   0E8D E8 00       	mov	a, #0
+2728   0E8F D4 B5       	mov	ch_vib_wav+x, a
+2729   0E91 6F          	ret
+2730   0E92             ;=======================================================================
+2731   0E92             SCommand_Panning:
+2732   0E92             ;=======================================================================
+2733   0E92 D0 D5       	bne	cmd_exit3			; on tick0:
+2734   0E94 C4 02       	mov	m0, a				; panning = (y << 2) + (y >> 2)
+2735   0E96 1C          	asl	a				;
+2736   0E97 1C          	asl	a				;
+2737   0E98 4B 02       	lsr	m0				;
+2738   0E9A 4B 02       	lsr	m0				;
+2739   0E9C 84 02       	adc	a, m0				;
+2740   0E9E C4 D8       	mov	t_panning, a			;
+2741   0EA0 D4 45       	mov	ch_panning+x, a			;
+2742   0EA2 6F          	ret					;
+2743   0EA3             ;=======================================================================
+2744   0EA3             SCommand_SoundControl:
+2745   0EA3             ;=======================================================================
+2746   0EA3 D0 C4       	bne	cmd_exit3
+2747   0EA5 68 01       	cmp	a, #1
+2748   0EA7 D0 0D       	bne	SCommand_Mute			; mute for pitch modulation
+2749   0EA9 F4 85       	mov	a, ch_flags+x
+2750   0EAB 08 40       	or	a, #CF_SURROUND
+2751   0EAD D4 85       	mov	ch_flags+x, a
+2752   0EAF E8 20       	mov	a, #32
+2753   0EB1 D4 45       	mov	ch_panning+x, a
+2754   0EB3 C4 D8       	mov	t_panning, a
+2755   0EB5 6F          	ret
+2756   0EB6             ;=======================================================================
+2757   0EB6             SCommand_Mute:	; This part added by KFF for pitch modulation
+2758   0EB6             ;=======================================================================
+2759   0EB6 68 02       	cmp	a, #2
+2760   0EB8 D0 07       	bne	unmute
+2761   0EBA F4 85       	mov	a, ch_flags+x
+2762   0EBC 08 80       	or	a, #80h
+2763   0EBE D4 85       	mov	ch_flags+x, a
+2764   0EC0 6F          	ret
+2765   0EC1 68 03       unmute:	cmp	a, #3
+2766   0EC3 D0 A4       	bne	cmd_exit3
+2767   0EC5 F4 85       	mov	a, ch_flags+x
+2768   0EC7 28 7F       	and     a, #127				; mask 7 bits
+2769   0EC9 D4 85       	mov	ch_flags+x,a
+2770   0ECB 6F          	ret
+2771   0ECC             ;=======================================================================
+2772   0ECC             SCommand_NoteCut:
+2773   0ECC             ;=======================================================================
+2774   0ECC 64 18       	cmp	a, mod_tick			; on tick Y:
+2775   0ECE D0 99       	bne	cmd_exit3			;
+2776   0ED0 E8 00       	mov	a, #0				; zero volume
+2777   0ED2 C4 D7       	mov	t_volume, a			;
+2778   0ED4 D4 35       	mov	ch_volume+x, a			;
+2779   0ED6 6F          	ret					;
+2780   0ED7             ;=======================================================================
+2781   0ED7             SCommand_NoteDelay:				; SDx
+2782   0ED7             ;=======================================================================
+2783   0ED7 64 18       	cmp	a, mod_tick
+2784   0ED9 F0 07       	beq	scdelay_equ
+2785   0EDB B0 01       	bcs	scdelay_lower
+2786   0EDD             	
+2787   0EDD 6F          	ret
+2788   0EDE             scdelay_lower:
+2789   0EDE 18 02 DB    	or	t_flags, #TF_DELAY
+2790   0EE1 6F          	ret
+2791   0EE2             scdelay_equ:
+2792   0EE2 18 80 DB    	or	t_flags, #TF_START
+2793   0EE5 6F          	ret
+2794   0EE6             ;=======================================================================
+2795   0EE6             SCommand_Cue:					; SF
+2796   0EE6             ;=======================================================================
+2797   0EE6 D0 81       	bne	cmd_exit3			;on tick0:
+2798   0EE8 AB DF       	inc	STATUS				; increment CUE value
+2799   0EEA 38 EF DF    	and	STATUS, #11101111b		; in status and send to
+2800   0EED FA DF F6    	mov	SPC_PORT2, STATUS		; snes
+2801   0EF0 6F          	ret					;
+2802   0EF1             ;=======================================================================
+2803   0EF1             Command_Tempo:					; Txy
+2804   0EF1             ;=======================================================================
+2805   0EF1 68 20       	cmp	a, #20h
+2806   0EF3 90 0D       	bcc	_temposlide
+2807   0EF5 68 50       	cmp	a, #80
+2808   0EF7 B0 02       	bcs	_txxu1
+2809   0EF9 E8 50       	mov	a, #80
+2810   0EFB             _txxu1:	;cmp	a, #200				; why limit to 200??
+2811   0EFB             	;bcc	_txxu2
+2812   0EFB             	;mov	a, #200
+2813   0EFB 3F BE 06    _txxu2:	call	Module_ChangeTempo
+2814   0EFE 8F 07 F1    	mov	SPC_CONTROL, #%111
+2815   0F01 6F          	ret
+2816   0F02             _temposlide:
+2817   0F02 68 10       	cmp	a, #10h
+2818   0F04 90 0C       	bcc	_txx_down
+2819   0F06 28 0F       	and	a, #0Fh
+2820   0F08 60          	clrc
+2821   0F09 84 1B       	adc	a, mod_bpm
+2822   0F0B             	;cmp	a, #200
+2823   0F0B             	;bcc	_txx_satH
+2824   0F0B             	;mov	a, #200
+2825   0F0B             _txx_satH:
+2826   0F0B 3F BE 06    	call	Module_ChangeTempo
+2827   0F0E 8F 07 F1    	mov	SPC_CONTROL, #%111
+2828   0F11 6F          	ret
+2829   0F12             _txx_down:
+2830   0F12 C4 02       	mov	m0, a
+2831   0F14 E4 1B       	mov	a, mod_bpm
+2832   0F16 80          	setc
+2833   0F17 A4 02       	sbc	a, m0
+2834   0F19 68 50       	cmp	a, #80
+2835   0F1B B0 EE       	bcs	_txx_satH
+2836   0F1D E8 50       	mov	a, #80
+2837   0F1F 3F BE 06    	call	Module_ChangeTempo
+2838   0F22 8F 07 F1    	mov	SPC_CONTROL, #%111
+2839   0F25 6F          	ret
+2840   0F26             ;=======================================================================
+2841   0F26             ;Command_FineVibrato:				; unimplemented
+2842   0F26             ;=======================================================================
+2843   0F26             	;ret
+2844   0F26             
+2845   0F26             ;=======================================================================
+2846   0F26             Command_SetGlobalVolume:			; Vxx
+2847   0F26             ;=======================================================================
+2848   0F26 D0 08       	bne	cmd_exit4			; set global volume on tick0
+2849   0F28 68 80       	cmp	a, #80h				;
+2850   0F2A 90 02       	bcc	_vxx_nsat			; saturate to 80h
+2851   0F2C E8 80       	mov	a, #80h				;
+2852   0F2E             _vxx_nsat:					;
+2853   0F2E C4 1E       	mov	mod_gvol, a			;
+2854   0F30             cmd_exit4:					;
+2855   0F30 6F          	ret					;
+2856   0F31             ;=======================================================================
+2857   0F31             Command_GlobalVolumeSlide:			; Wxy
+2858   0F31             ;=======================================================================
+2859   0F31 FA 1E 02    	mov	m0, mod_gvol			; slide global volume
+2860   0F34 8F 80 03    	mov	m0+1, #128			; max 128
+2861   0F37 3F 4F 0F    	call	DoVolumeSlide			;
+2862   0F3A C4 1E       	mov	mod_gvol, a			;
+2863   0F3C 6F          	ret					;
+2864   0F3D             ;=======================================================================
+2865   0F3D             Command_SetPanning:				; Xxy
+2866   0F3D             ;=======================================================================
+2867   0F3D D0 F1       	bne	cmd_exit4			; set panning on tick0	
+2868   0F3F 5C          	lsr	a				;
+2869   0F40 5C          	lsr	a				;
+2870   0F41 C4 D8       	mov	t_panning, a			;
+2871   0F43             Command_SetPanningb:				;
+2872   0F43 D4 45       	mov	ch_panning+x, a			;
+2873   0F45 F4 85       	mov	a, ch_flags+x			;
+2874   0F47 28 BF       	and	a, #~CF_SURROUND		;
+2875   0F49 D4 85       	mov	ch_flags+x, a			;
+2876   0F4B 6F          	ret					;
+2877   0F4C             ;=======================================================================
+2878   0F4C             ;Command_Panbrello:				; unimplemented
+2879   0F4C             ;=======================================================================
+2880   0F4C             	;ret
+2881   0F4C             ;=======================================================================
+2882   0F4C             ;Command_MidiMacro:				; ?
+2883   0F4C             ;=======================================================================
+2884   0F4C             	;ret
+2885   0F4C             ;=======================================================================
+2886   0F4C             Command_SetSR:					; Zxx
+2887   0F4C             ;=======================================================================
+2888   0F4C D4 CD       	mov	ch_sr+x, a
+2889   0F4E 6F          	ret
+2890   0F4F             
+2891   0F4F             ;-----------------------------------------------------------------------
+2892   0F4F             ; a = param
+2893   0F4F             ; y = tick
+2894   0F4F             ; m0 = value
+2895   0F4F             ; m0+1 = upper bound
+2896   0F4F             ;
+2897   0F4F             ; return: a = result
+2898   0F4F             ;-----------------------------------------------------------------------
+2899   0F4F             DoVolumeSlide:
+2900   0F4F             ;-----------------------------------------------------------------------
+2901   0F4F C4 04       	mov	m1, a			; test param for slide behavior
+2902   0F51             					;-------------------------------
+2903   0F51 28 0F       	and	a, #0Fh			; Dx0 : slide up
+2904   0F53 F0 4D       	beq	_dvs_up			;-------------------------------
+2905   0F55 E4 04       	mov	a, m1			; D0y : slide down
+2906   0F57 28 F0       	and	a, #0F0h		;
+2907   0F59 F0 34       	beq	_dvs_down		;-------------------------------
+2908   0F5B E4 04       	mov	a, m1			; DxF : slide up fine
+2909   0F5D 28 0F       	and	a, #0Fh			;
+2910   0F5F 68 0F       	cmp	a, #0Fh			;
+2911   0F61 F0 19       	beq	_dvs_fineup		;-------------------------------
+2912   0F63 E4 04       	mov	a, m1			; DFy : slide down fine
+2913   0F65 68 F0       	cmp	a, #0F0h		;
+2914   0F67 B0 03       	bcs	_dvs_finedown		;
+2915   0F69             _dvs_quit:				;-------------------------------
+2916   0F69 E4 02       	mov	a, m0			; (invalid)
+2917   0F6B             _dvs_exit:				;
+2918   0F6B 6F          	ret				;
+2919   0F6C             ;-----------------------------------------------------------------------
+2920   0F6C             _dvs_finedown:				; DFy
+2921   0F6C             ;-----------------------------------------------------------------------
+2922   0F6C AD 00       	cmp	y, #0			;on tick0:
+2923   0F6E D0 F9       	bne	_dvs_quit		;
+2924   0F70 E4 02       	mov	a, m0			; a = volume - y
+2925   0F72 38 0F 04    	and	m1, #0Fh		;
+2926   0F75 A4 04       	sbc	a, m1			;
+2927   0F77 B0 F2       	bcs	_dvs_exit		; saturate lower bound to 0
+2928   0F79 E8 00       	mov	a, #0			;
+2929   0F7B 6F          	ret				;
+2930   0F7C             ;-----------------------------------------------------------------------
+2931   0F7C             _dvs_fineup:				; DxF
+2932   0F7C             ;-----------------------------------------------------------------------
+2933   0F7C AD 00       	cmp	y, #0			;on tick0:
+2934   0F7E D0 E9       	bne	_dvs_quit		;
+2935   0F80 E4 04       	mov	a, m1			; a = x + volume
+2936   0F82 9F          	xcn	a			;
+2937   0F83 28 0F       	and	a, #0Fh			;
+2938   0F85 60          	clrc				;
+2939   0F86 84 02       	adc	a, m0			;
+2940   0F88 64 03       	cmp	a, m0+1			; saturate upper to [m0.h]
+2941   0F8A 90 DF       	bcc	_dvs_exit		;
+2942   0F8C E4 03       	mov	a, m0+1			;
+2943   0F8E 6F          	ret				;
+2944   0F8F             ;-----------------------------------------------------------------------
+2945   0F8F             _dvs_down:				; D0y
+2946   0F8F             ;-----------------------------------------------------------------------
+2947   0F8F 78 0F 04    	cmp	m1,#0Fh			;on tick0 OR y == 15
+2948   0F92 F0 04       	beq	_dvsd_15		;
+2949   0F94 AD 00       	cmp	y, #0			;
+2950   0F96 F0 D1       	beq	_dvs_quit		;
+2951   0F98             _dvsd_15:				;
+2952   0F98 E4 02       	mov	a, m0			; a = volume - param
+2953   0F9A 80          	setc				;
+2954   0F9B A4 04       	sbc	a, m1			;
+2955   0F9D B0 CC       	bcs	_dvs_exit		; saturate lower to 0
+2956   0F9F E8 00       	mov	a, #0			;
+2957   0FA1 6F          	ret				;
+2958   0FA2             ;-----------------------------------------------------------------------
+2959   0FA2             _dvs_up:				;
+2960   0FA2             ;-----------------------------------------------------------------------
+2961   0FA2 78 F0 04    	cmp	m1, #0F0h		;on tick0 OR x == 15
+2962   0FA5 F0 04       	beq	_dvsu_15		;
+2963   0FA7 AD 00       	cmp	y, #0			;
+2964   0FA9 F0 BE       	beq	_dvs_quit		;
+2965   0FAB             _dvsu_15:				;
+2966   0FAB E4 04       	mov	a, m1			; a = x + volume
+2967   0FAD 9F          	xcn	a			;
+2968   0FAE 28 0F       	and	a, #0Fh			;
+2969   0FB0 60          	clrc				;
+2970   0FB1 84 02       	adc	a, m0			;
+2971   0FB3 64 03       	cmp	a, m0+1			; saturte upper to [m0.h]
+2972   0FB5 90 B4       	bcc	_dvs_exit		;
+2973   0FB7 E4 03       	mov	a, m0+1			;
+2974   0FB9 6F          	ret				;
+2975   0FBA             ;-----------------------------------------------------------------------
+2976   0FBA             
+2977   0FBA             ;=======================================================================
+2978   0FBA             ; a = param
+2979   0FBA             ; y = tick
+2980   0FBA             ; return m0:word = slide amount
+2981   0FBA             ;=======================================================================
+2982   0FBA             PitchSlide_Load:
+2983   0FBA             ;=======================================================================
+2984   0FBA 68 F0       	cmp	a, #0F0h			; Fx: fine slide
+2985   0FBC B0 14       	bcs	_psl_fine			;
+2986   0FBE 68 E0       	cmp	a, #0E0h			; Ex: extra fine slide
+2987   0FC0 B0 1E       	bcs	_psl_exfine			;
+2988   0FC2             ;-----------------------------------------------------------------------
+2989   0FC2             _psl_normal:
+2990   0FC2             ;-----------------------------------------------------------------------
+2991   0FC2 AD 00       	cmp	y, #0				; no slide on tick0
+2992   0FC4 F0 26       	beq	_psl_zero			;
+2993   0FC6             ;=======================================================================
+2994   0FC6             Amult4_M0:
+2995   0FC6             ;=======================================================================
+2996   0FC6 8F 00 03    	mov	m0+1, #0			; m0 = a*4
+2997   0FC9 1C          	asl	a				;	
+2998   0FCA 2B 03       	rol	m0+1				;
+2999   0FCC 1C          	asl	a				;
+3000   0FCD 2B 03       	rol	m0+1				;
+3001   0FCF C4 02       	mov	m0, a				;
+3002   0FD1 6F          	ret					;
+3003   0FD2             ;-----------------------------------------------------------------------
+3004   0FD2             _psl_fine:
+3005   0FD2             ;-----------------------------------------------------------------------
+3006   0FD2 AD 00       	cmp	y, #0				; no slide on not tick0
+3007   0FD4 D0 16       	bne	_psl_zero			;
+3008   0FD6 8F 00 03    	mov	m0+1, #0			; m0 = y*4
+3009   0FD9 28 0F       	and	a, #0Fh				;	
+3010   0FDB 1C          	asl	a				;
+3011   0FDC 1C          	asl	a				;
+3012   0FDD C4 02       	mov	m0, a				;
+3013   0FDF 6F          	ret					;
+3014   0FE0             ;-----------------------------------------------------------------------
+3015   0FE0             _psl_exfine:
+3016   0FE0             ;-----------------------------------------------------------------------
+3017   0FE0 AD 00       	cmp	y, #0				; no slide on not tick0
+3018   0FE2 D0 08       	bne	_psl_zero			;
+3019   0FE4 8F 00 03    	mov	m0+1, #0			; m0 = y
+3020   0FE7 28 0F       	and	a, #0Fh				;	
+3021   0FE9 C4 02       	mov	m0, a				;
+3022   0FEB 6F          	ret					;
+3023   0FEC             ;-----------------------------------------------------------------------
+3024   0FEC             _psl_zero:
+3025   0FEC             ;-----------------------------------------------------------------------
+3026   0FEC 8F 00 02    	mov	m0, #0
+3027   0FEF 8F 00 03    	mov	m0+1, #0
+3028   0FF2 6F          	ret
+3029   0FF3             
+3030   0FF3             ;*****************************************************************************
+3031   0FF3             
+3032   0FF3             LUT_DIV3:
+3033   0FF3 000000010101	.byte 0, 0, 0, 1, 1, 1, 2, 2, 2
+3033   0FF9 020202
+3034   0FFC 030303040404	.byte 3, 3, 3, 4, 4, 4, 5, 5, 5
+3034   1002 050505
+3035   1005 060606070707	.byte 6, 6, 6, 7, 7, 7, 8, 8, 8
+3035   100B 080808
+3036   100E 0909090A0A  	.byte 9, 9, 9,10,10
+3037   1013             	
+3038   1013             LUT_FTAB:
+3039   1013 74217B218321        .word 02174h, 0217Bh, 02183h, 0218Bh, 02193h, 0219Ah, 021A2h, 021AAh, 021B2h, 021BAh, 021C1h, 021C9h, 021D1h, 021D9h, 021E1h, 021E8h
+3039   1019 8B2193219A21A221AA21B221BA21C121C921D121D921E121E821
+3040   1033 F021F8210022        .word 021F0h, 021F8h, 02200h, 02208h, 02210h, 02218h, 0221Fh, 02227h, 0222Fh, 02237h, 0223Fh, 02247h, 0224Fh, 02257h, 0225Fh, 02267h
+3040   1039 0822102218221F2227222F2237223F2247224F2257225F226722
+3041   1053 6F2277227F22        .word 0226Fh, 02277h, 0227Fh, 02287h, 0228Fh, 02297h, 0229Fh, 022A7h, 022AFh, 022B7h, 022BFh, 022C7h, 022CFh, 022D7h, 022DFh, 022E7h
+3041   1059 87228F2297229F22A722AF22B722BF22C722CF22D722DF22E722
+3042   1073 EF22F722FF22        .word 022EFh, 022F7h, 022FFh, 02307h, 0230Fh, 02317h, 0231Fh, 02328h, 02330h, 02338h, 02340h, 02348h, 02350h, 02358h, 02361h, 02369h
+3042   1079 07230F2317231F23282330233823402348235023582361236923
+3043   1093 712379238123        .word 02371h, 02379h, 02381h, 0238Ah, 02392h, 0239Ah, 023A2h, 023AAh, 023B3h, 023BBh, 023C3h, 023CBh, 023D4h, 023DCh, 023E4h, 023EDh
+3043   1099 8A2392239A23A223AA23B323BB23C323CB23D423DC23E423ED23
+3044   10B3 F523FD230624        .word 023F5h, 023FDh, 02406h, 0240Eh, 02416h, 0241Fh, 02427h, 0242Fh, 02438h, 02440h, 02448h, 02451h, 02459h, 02462h, 0246Ah, 02472h
+3044   10B9 0E2416241F2427242F243824402448245124592462246A247224
+3045   10D3 7B2483248C24        .word 0247Bh, 02483h, 0248Ch, 02494h, 0249Dh, 024A5h, 024AEh, 024B6h, 024BEh, 024C7h, 024CFh, 024D8h, 024E0h, 024E9h, 024F2h, 024FAh
+3045   10D9 94249D24A524AE24B624BE24C724CF24D824E024E924F224FA24
+3046   10F3 03250B251425        .word 02503h, 0250Bh, 02514h, 0251Ch, 02525h, 0252Dh, 02536h, 0253Fh, 02547h, 02550h, 02559h, 02561h, 0256Ah, 02572h, 0257Bh, 02584h
+3046   10F9 1C2525252D2536253F2547255025592561256A2572257B258425
+3047   1113 8C2595259E25        .word 0258Ch, 02595h, 0259Eh, 025A7h, 025AFh, 025B8h, 025C1h, 025C9h, 025D2h, 025DBh, 025E4h, 025ECh, 025F5h, 025FEh, 02607h, 0260Fh
+3047   1119 A725AF25B825C125C925D225DB25E425EC25F525FE2507260F26
+3048   1133 182621262A26        .word 02618h, 02621h, 0262Ah, 02633h, 0263Ch, 02644h, 0264Dh, 02656h, 0265Fh, 02668h, 02671h, 0267Ah, 02682h, 0268Bh, 02694h, 0269Dh
+3048   1139 33263C2644264D2656265F26682671267A2682268B2694269D26
+3049   1153 A626AF26B826        .word 026A6h, 026AFh, 026B8h, 026C1h, 026CAh, 026D3h, 026DCh, 026E5h, 026EEh, 026F7h, 02700h, 02709h, 02712h, 0271Bh, 02724h, 0272Dh
+3049   1159 C126CA26D326DC26E526EE26F7260027092712271B2724272D27
+3050   1173 36273F274827        .word 02736h, 0273Fh, 02748h, 02751h, 0275Ah, 02763h, 0276Dh, 02776h, 0277Fh, 02788h, 02791h, 0279Ah, 027A3h, 027ACh, 027B6h, 027BFh
+3050   1179 51275A2763276D2776277F27882791279A27A327AC27B627BF27
+3051   1193 C827D127DA27        .word 027C8h, 027D1h, 027DAh, 027E4h, 027EDh, 027F6h, 027FFh, 02809h, 02812h, 0281Bh, 02824h, 0282Eh, 02837h, 02840h, 0284Ah, 02853h
+3051   1199 E427ED27F627FF27092812281B2824282E28372840284A285328
+3052   11B3 5C2865286F28        .word 0285Ch, 02865h, 0286Fh, 02878h, 02882h, 0288Bh, 02894h, 0289Eh, 028A7h, 028B0h, 028BAh, 028C3h, 028CDh, 028D6h, 028E0h, 028E9h
+3052   11B9 782882288B2894289E28A728B028BA28C328CD28D628E028E928
+3053   11D3 F228FC280529        .word 028F2h, 028FCh, 02905h, 0290Fh, 02918h, 02922h, 0292Bh, 02935h, 0293Eh, 02948h, 02951h, 0295Bh, 02965h, 0296Eh, 02978h, 02981h
+3053   11D9 0F29182922292B2935293E29482951295B2965296E2978298129
+3054   11F3 8B2995299E29        .word 0298Bh, 02995h, 0299Eh, 029A8h, 029B1h, 029BBh, 029C5h, 029CEh, 029D8h, 029E2h, 029EBh, 029F5h, 029FFh, 02A08h, 02A12h, 02A1Ch
+3054   11F9 A829B129BB29C529CE29D829E229EB29F529FF29082A122A1C2A
+3055   1213 262A2F2A392A        .word 02A26h, 02A2Fh, 02A39h, 02A43h, 02A4Dh, 02A56h, 02A60h, 02A6Ah, 02A74h, 02A7Eh, 02A87h, 02A91h, 02A9Bh, 02AA5h, 02AAFh, 02AB9h
+3055   1219 432A4D2A562A602A6A2A742A7E2A872A912A9B2AA52AAF2AB92A
+3056   1233 C32ACC2AD62A        .word 02AC3h, 02ACCh, 02AD6h, 02AE0h, 02AEAh, 02AF4h, 02AFEh, 02B08h, 02B12h, 02B1Ch, 02B26h, 02B30h, 02B3Ah, 02B44h, 02B4Eh, 02B58h
+3056   1239 E02AEA2AF42AFE2A082B122B1C2B262B302B3A2B442B4E2B582B
+3057   1253 622B6C2B762B        .word 02B62h, 02B6Ch, 02B76h, 02B80h, 02B8Ah, 02B94h, 02B9Eh, 02BA8h, 02BB2h, 02BBCh, 02BC6h, 02BD1h, 02BDBh, 02BE5h, 02BEFh, 02BF9h
+3057   1259 802B8A2B942B9E2BA82BB22BBC2BC62BD12BDB2BE52BEF2BF92B
+3058   1273 032C0D2C182C        .word 02C03h, 02C0Dh, 02C18h, 02C22h, 02C2Ch, 02C36h, 02C40h, 02C4Bh, 02C55h, 02C5Fh, 02C69h, 02C74h, 02C7Eh, 02C88h, 02C93h, 02C9Dh
+3058   1279 222C2C2C362C402C4B2C552C5F2C692C742C7E2C882C932C9D2C
+3059   1293 A72CB22CBC2C        .word 02CA7h, 02CB2h, 02CBCh, 02CC6h, 02CD1h, 02CDBh, 02CE5h, 02CF0h, 02CFAh, 02D04h, 02D0Fh, 02D19h, 02D24h, 02D2Eh, 02D39h, 02D43h
+3059   1299 C62CD12CDB2CE52CF02CFA2C042D0F2D192D242D2E2D392D432D
+3060   12B3 4D2D582D622D        .word 02D4Dh, 02D58h, 02D62h, 02D6Dh, 02D77h, 02D82h, 02D8Ch, 02D97h, 02DA1h, 02DACh, 02DB7h, 02DC1h, 02DCCh, 02DD6h, 02DE1h, 02DECh
+3060   12B9 6D2D772D822D8C2D972DA12DAC2DB72DC12DCC2DD62DE12DEC2D
+3061   12D3 F62D012E0B2E        .word 02DF6h, 02E01h, 02E0Bh, 02E16h, 02E21h, 02E2Bh, 02E36h, 02E41h, 02E4Bh, 02E56h, 02E61h, 02E6Ch, 02E76h, 02E81h, 02E8Ch, 02E97h
+3061   12D9 162E212E2B2E362E412E4B2E562E612E6C2E762E812E8C2E972E
+3062   12F3 A12EAC2EB72E        .word 02EA1h, 02EACh, 02EB7h, 02EC2h, 02ECCh, 02ED7h, 02EE2h, 02EEDh, 02EF8h, 02F03h, 02F0Eh, 02F18h, 02F23h, 02F2Eh, 02F39h, 02F44h
+3062   12F9 C22ECC2ED72EE22EED2EF82E032F0E2F182F232F2E2F392F442F
+3063   1313 4F2F5A2F652F        .word 02F4Fh, 02F5Ah, 02F65h, 02F70h, 02F7Bh, 02F86h, 02F91h, 02F9Ch, 02FA7h, 02FB2h, 02FBDh, 02FC8h, 02FD3h, 02FDEh, 02FE9h, 02FF4h
+3063   1319 702F7B2F862F912F9C2FA72FB22FBD2FC82FD32FDE2FE92FF42F
+3064   1333 FF2F0A301530        .word 02FFFh, 0300Ah, 03015h, 03020h, 0302Ch, 03037h, 03042h, 0304Dh, 03058h, 03063h, 0306Eh, 0307Ah, 03085h, 03090h, 0309Bh, 030A7h
+3064   1339 20302C30373042304D30583063306E307A30853090309B30A730
+3065   1353 B230BD30C830        .word 030B2h, 030BDh, 030C8h, 030D4h, 030DFh, 030EAh, 030F5h, 03101h, 0310Ch, 03117h, 03123h, 0312Eh, 0313Ah, 03145h, 03150h, 0315Ch
+3065   1359 D430DF30EA30F53001310C31173123312E313A31453150315C31
+3066   1373 673173317E31        .word 03167h, 03173h, 0317Eh, 03189h, 03195h, 031A0h, 031ACh, 031B7h, 031C3h, 031CEh, 031DAh, 031E5h, 031F1h, 031FCh, 03208h, 03213h
+3066   1379 89319531A031AC31B731C331CE31DA31E531F131FC3108321332
+3067   1393 1F322B323632        .word 0321Fh, 0322Bh, 03236h, 03242h, 0324Dh, 03259h, 03265h, 03270h, 0327Ch, 03288h, 03293h, 0329Fh, 032ABh, 032B7h, 032C2h, 032CEh
+3067   1399 42324D325932653270327C32883293329F32AB32B732C232CE32
+3068   13B3 DA32E532F132        .word 032DAh, 032E5h, 032F1h, 032FDh, 03309h, 03315h, 03320h, 0332Ch, 03338h, 03344h, 03350h, 0335Ch, 03367h, 03373h, 0337Fh, 0338Bh
+3068   13B9 FD320933153320332C333833443350335C33673373337F338B33
+3069   13D3 9733A333AF33        .word 03397h, 033A3h, 033AFh, 033BBh, 033C7h, 033D3h, 033DFh, 033EBh, 033F7h, 03403h, 0340Fh, 0341Bh, 03427h, 03433h, 0343Fh, 0344Bh
+3069   13D9 BB33C733D333DF33EB33F73303340F341B34273433343F344B34
+3070   13F3 573463346F34        .word 03457h, 03463h, 0346Fh, 0347Bh, 03488h, 03494h, 034A0h, 034ACh, 034B8h, 034C4h, 034D1h, 034DDh, 034E9h, 034F5h, 03502h, 0350Eh
+3070   13F9 7B3488349434A034AC34B834C434D134DD34E934F53402350E35
+3071   1413 1A3526353335        .word 0351Ah, 03526h, 03533h, 0353Fh, 0354Bh, 03558h, 03564h, 03570h, 0357Dh, 03589h, 03595h, 035A2h, 035AEh, 035BAh, 035C7h, 035D3h
+3071   1419 3F354B355835643570357D3589359535A235AE35BA35C735D335
+3072   1433 E035EC35F935        .word 035E0h, 035ECh, 035F9h, 03605h, 03612h, 0361Eh, 0362Bh, 03637h, 03644h, 03650h, 0365Dh, 03669h, 03676h, 03683h, 0368Fh, 0369Ch
+3072   1439 053612361E362B363736443650365D366936763683368F369C36
+3073   1453 A836B536C236        .word 036A8h, 036B5h, 036C2h, 036CEh, 036DBh, 036E8h, 036F4h, 03701h, 0370Eh, 0371Bh, 03727h, 03734h, 03741h, 0374Eh, 0375Ah, 03767h
+3073   1459 CE36DB36E836F43601370E371B372737343741374E375A376737
+3074   1473 743781378E37        .word 03774h, 03781h, 0378Eh, 0379Ah, 037A7h, 037B4h, 037C1h, 037CEh, 037DBh, 037E8h, 037F5h, 03802h, 0380Eh, 0381Bh, 03828h, 03835h
+3074   1479 9A37A737B437C137CE37DB37E837F53702380E381B3828383538
+3075   1493 42384F385C38        .word 03842h, 0384Fh, 0385Ch, 03869h, 03876h, 03884h, 03891h, 0389Eh, 038ABh, 038B8h, 038C5h, 038D2h, 038DFh, 038ECh, 038FAh, 03907h
+3075   1499 69387638843891389E38AB38B838C538D238DF38EC38FA380739
+3076   14B3 143921392E39        .word 03914h, 03921h, 0392Eh, 0393Bh, 03949h, 03956h, 03963h, 03970h, 0397Eh, 0398Bh, 03998h, 039A6h, 039B3h, 039C0h, 039CEh, 039DBh
+3076   14B9 3B3949395639633970397E398B399839A639B339C039CE39DB39
+3077   14D3 E839F639033A        .word 039E8h, 039F6h, 03A03h, 03A11h, 03A1Eh, 03A2Bh, 03A39h, 03A46h, 03A54h, 03A61h, 03A6Fh, 03A7Ch, 03A8Ah, 03A97h, 03AA5h, 03AB2h
+3077   14D9 113A1E3A2B3A393A463A543A613A6F3A7C3A8A3A973AA53AB23A
+3078   14F3 C03ACE3ADB3A        .word 03AC0h, 03ACEh, 03ADBh, 03AE9h, 03AF6h, 03B04h, 03B12h, 03B1Fh, 03B2Dh, 03B3Bh, 03B48h, 03B56h, 03B64h, 03B72h, 03B7Fh, 03B8Dh
+3078   14F9 E93AF63A043B123B1F3B2D3B3B3B483B563B643B723B7F3B8D3B
+3079   1513 9B3BA93BB63B        .word 03B9Bh, 03BA9h, 03BB6h, 03BC4h, 03BD2h, 03BE0h, 03BEEh, 03BFCh, 03C09h, 03C17h, 03C25h, 03C33h, 03C41h, 03C4Fh, 03C5Dh, 03C6Bh
+3079   1519 C43BD23BE03BEE3BFC3B093C173C253C333C413C4F3C5D3C6B3C
+3080   1533 793C873C953C        .word 03C79h, 03C87h, 03C95h, 03CA3h, 03CB1h, 03CBFh, 03CCDh, 03CDBh, 03CE9h, 03CF7h, 03D05h, 03D13h, 03D21h, 03D2Fh, 03D3Eh, 03D4Ch
+3080   1539 A33CB13CBF3CCD3CDB3CE93CF73C053D133D213D2F3D3E3D4C3D
+3081   1553 5A3D683D763D        .word 03D5Ah, 03D68h, 03D76h, 03D85h, 03D93h, 03DA1h, 03DAFh, 03DBDh, 03DCCh, 03DDAh, 03DE8h, 03DF7h, 03E05h, 03E13h, 03E22h, 03E30h
+3081   1559 853D933DA13DAF3DBD3DCC3DDA3DE83DF73D053E133E223E303E
+3082   1573 3E3E4D3E5B3E        .word 03E3Eh, 03E4Dh, 03E5Bh, 03E6Ah, 03E78h, 03E86h, 03E95h, 03EA3h, 03EB2h, 03EC0h, 03ECFh, 03EDDh, 03EECh, 03EFAh, 03F09h, 03F18h
+3082   1579 6A3E783E863E953EA33EB23EC03ECF3EDD3EEC3EFA3E093F183F
+3083   1593 263F353F433F        .word 03F26h, 03F35h, 03F43h, 03F52h, 03F61h, 03F6Fh, 03F7Eh, 03F8Dh, 03F9Bh, 03FAAh, 03FB9h, 03FC7h, 03FD6h, 03FE5h, 03FF4h, 04002h
+3083   1599 523F613F6F3F7E3F8D3F9B3FAA3FB93FC73FD63FE53FF43F0240
+3084   15B3 114020402F40        .word 04011h, 04020h, 0402Fh, 0403Eh, 0404Dh, 0405Bh, 0406Ah, 04079h, 04088h, 04097h, 040A6h, 040B5h, 040C4h, 040D3h, 040E2h, 040F1h
+3084   15B9 3E404D405B406A40794088409740A640B540C440D340E240F140
+3085   15D3 00410F411E41        .word 04100h, 0410Fh, 0411Eh, 0412Dh, 0413Ch, 0414Bh, 0415Ah, 04169h, 04178h, 04188h, 04197h, 041A6h, 041B5h, 041C4h, 041D3h, 041E3h
+3085   15D9 2D413C414B415A416941784188419741A641B541C441D341E341
+3086   15F3 F24101421042        .word 041F2h, 04201h, 04210h, 04220h, 0422Fh, 0423Eh, 0424Eh, 0425Dh, 0426Ch, 0427Ch, 0428Bh, 0429Ah, 042AAh, 042B9h, 042C9h, 042D8h
+3086   15F9 20422F423E424E425D426C427C428B429A42AA42B942C942D842
+3087   1613             
+3088   1613             IT_FineSineData:
+3089   1613 000203050608	.byte   0,  2,  3,  5,  6,  8,  9, 11, 12, 14, 16, 17, 19, 20, 22, 23
+3089   1619 090B0C0E101113141617
+3090   1623 181A1B1D1E20	.byte  24, 26, 27, 29, 30, 32, 33, 34, 36, 37, 38, 39, 41, 42, 43, 44
+3090   1629 212224252627292A2B2C
+3091   1633 2D2E2F303132	.byte  45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 56, 57, 58, 59
+3091   1639 33343536373838393A3B
+3092   1643 3B3C3C3D3D3E	.byte  59, 60, 60, 61, 61, 62, 62, 62, 63, 63, 63, 64, 64, 64, 64, 64
+3092   1649 3E3E3F3F3F4040404040
+3093   1653 404040404040	.byte  64, 64, 64, 64, 64, 64, 63, 63, 63, 62, 62, 62, 61, 61, 60, 60
+3093   1659 3F3F3F3E3E3E3D3D3C3C
+3094   1663 3B3B3A393838	.byte  59, 59, 58, 57, 56, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46
+3094   1669 37363534333231302F2E
+3095   1673 2D2C2B2A2927	.byte  45, 44, 43, 42, 41, 39, 38, 37, 36, 34, 33, 32, 30, 29, 27, 26
+3095   1679 2625242221201E1D1B1A
+3096   1683 181716141311	.byte  24, 23, 22, 20, 19, 17, 16, 14, 12, 11,  9,  8,  6,  5,  3,  2
+3096   1689 100E0C0B090806050302
+3097   1693             	
+3098   1693             ;*****************************************************************************
+3099   1693             ;* Sound Effects
+3100   1693             ;*****************************************************************************
+3101   1693             
+3102   1693             map_15_127:
+3103   1693 00 08 11 19 	 .byte 0,  8, 17, 25,
+3104   1697 22 2A 33 3B 	 .byte 34, 42, 51, 59,
+3105   169B 44 4C 55 5D 	 .byte 68, 76, 85, 93,
+3106   169F 66 6E 77 7F 	 .byte 102, 110, 119, 127
+3107   16A3             
+3108   16A3             ;*****************************************************************************
+3109   16A3             ;* play sound effect
+3110   16A3             ;*
+3111   16A3             ;* m0 = params
+3112   16A3             ;* vp sh
+3113   16A3             ;* 
+3114   16A3             ;* s = sample index
+3115   16A3             ;* h = pitch ( 8 = 32000hz, h = pitch height >> 9 )
+3116   16A3             ;* v = volume (15 = max)
+3117   16A3             ;* p = panning (8 = center)
+3118   16A3             ;*************************************************************************
+3119   16A3             SFX_Play:
+3120   16A3             ;-------------------------------------------------------------------------
+3121   16A3 E4 02       	mov	a, m0			; m1 = GAIN (0-15 = 0-127)
+3122   16A5 9F          	xcn	a			;
+3123   16A6 28 0F       	and	a, #0Fh			;
+3124   16A8 FD          	mov	y, a			;
+3125   16A9 F6 93 16    	mov	a, !map_15_127+y	;
+3126   16AC C4 04       	mov	m1, a			;---------------------------------
+3127   16AE E4 02       	mov	a, m0			; m2 = volumes
+3128   16B0 28 0F       	and	a, #0Fh			;
+3129   16B2 FD          	mov	y, a			;
+3130   16B3 F6 93 16    	mov	a, !map_15_127+y	;
+3131   16B6 C4 07       	mov	m2+1, a			;
+3132   16B8 48 7F       	eor	a, #127			;
+3133   16BA C4 06       	mov	m2, a			;---------------------------------
+3134   16BC E4 03       	mov	a, m0+1			; m1.h = src
+3135   16BE 28 F0       	and	a, #0F0h		;
+3136   16C0 9F          	xcn	a			;
+3137   16C1 60          	clrc				;
+3138   16C2 88 40       	adc	a, #64			;
+3139   16C4 C4 05       	mov	m1+1, a			;---------------------------------
+3140   16C6 E4 03       	mov	a, m0+1			; m3 = pitch.h
+3141   16C8 28 0F       	and	a, #0Fh			; (pitch.l = 0)
+3142   16CA 1C          	asl	a			;
+3143   16CB C4 08       	mov	m3, a			;---------------------------------
+3144   16CD E4 E1       	mov	a, sfx_mask		; test for unused channels
+3145   16CF 1C          	asl	a			;
+3146   16D0 90 1E       	bcc	_sfx_use1		;
+3147   16D2 F0 05       	beq	_sfx_use0		;---------------------------------
+3148   16D4 58 01 E2    	eor	sfx_next, #1		; otherwise alternate channels
+3149   16D7 D0 17       	bne	_sfx_use1		;
+3150   16D9             ;-------------------------------------------------------------------------
+3151   16D9             _sfx_use0:
+3152   16D9             ;-------------------------------------------------------------------------
+3153   16D9 8F 00 E2    	mov	sfx_next, #0		;
+3154   16DC 8F 64 F2    	mov	SPC_DSPA, #064h		; set SRCN value for channel
+3155   16DF FA 05 F3    	mov	SPC_DSPD, m1+1		;---------------------------------
+3156   16E2 8F 4C F2    	mov	SPC_DSPA, #DSP_KON	; set KON bit
+3157   16E5 8F 40 F3    	mov	SPC_DSPD, #%01000000	;
+3158   16E8 18 40 E1    	or	sfx_mask, #%01000000	; set SFX flag
+3159   16EB 8F 60 F2    	mov	SPC_DSPA, #060h		; setup dsp pointer
+3160   16EE 2F 15       	bra	_sfx_start		;
+3161   16F0             ;-------------------------------------------------------------------------
+3162   16F0             _sfx_use1:
+3163   16F0             ;-------------------------------------------------------------------------
+3164   16F0             ;	cmp	stream_active, #0	; [STREAMING reserves channel7]
+3165   16F0             ;	bne	_sfx_use0		;
+3166   16F0 8F 01 E2    	mov	sfx_next, #1
+3167   16F3 8F 74 F2    	mov	SPC_DSPA, #074h
+3168   16F6 FA 05 F3    	mov	SPC_DSPD, m1+1
+3169   16F9 8F 4C F2    	mov	SPC_DSPA, #DSP_KON
+3170   16FC 8F 80 F3    	mov	SPC_DSPD, #%10000000
+3171   16FF 18 80 E1    	or	sfx_mask, #%10000000
+3172   1702 8F 70 F2    	mov	SPC_DSPA, #070h
+3173   1705             ;-------------------------------------------------------------------------
+3174   1705             _sfx_start:
+3175   1705             ;-------------------------------------------------------------------------
+3176   1705 FA 06 F3    	mov	SPC_DSPD, m2		; VOLUME L
+3177   1708 AB F2       	inc	SPC_DSPA		;
+3178   170A FA 07 F3    	mov	SPC_DSPD, m2+1		; VOLUME R
+3179   170D AB F2       	inc	SPC_DSPA		;
+3180   170F 8F 00 F3    	mov	SPC_DSPD, #0		; PITCH L
+3181   1712 AB F2       	inc	SPC_DSPA		;
+3182   1714 FA 08 F3    	mov	SPC_DSPD, m3		; PITCH H
+3183   1717 AB F2       	inc	SPC_DSPA		;
+3184   1719 AB F2       	inc	SPC_DSPA		;
+3185   171B 8F 00 F3    	mov	SPC_DSPD, #0		; ADSR1
+3186   171E 18 07 F2    	or	SPC_DSPA, #7		;
+3187   1721 FA 04 F3    	mov	SPC_DSPD, m1		; GAIN
+3188   1724 6F          	ret				;
+3189   1725             ;-------------------------------------------------------------------------
+3190   1725             
+3191   1725             ;*************************************************************************
+3192   1725             ;* update sound effects
+3193   1725             ;*************************************************************************
+3194   1725             SFX_Update:
+3195   1725             ;-------------------------------------------------------------------------
+3196   1725 8F 7C F2    	mov	SPC_DSPA, #DSP_ENDX	; reset SFX mask flags with ENDX
+3197   1728 E4 F3       	mov	a, SPC_DSPD		;
+3198   172A C4 F3       	mov	SPC_DSPD, a		; <- clear endx
+3199   172C             ;	cmp	stream_active, #0
+3200   172C             ;	beq	_sfxu_nstreaming
+3201   172C             ;	and	a, #127
+3202   172C             ;_sfxu_nstreaming:
+3203   172C 44 E1       	eor	a, sfx_mask		;
+3204   172E 24 E1       	and	a, sfx_mask		;
+3205   1730 C4 E1       	mov	sfx_mask, a		;
+3206   1732 6F          	ret				;
+3207   1733             ;-------------------------------------------------------------------------
+3208   1733             
+3209   1733             ;*************************************************************************
+3210   1733             ;*
+3211   1733             ;* Streaming
+3212   1733             ;*
+3213   1733             ;*************************************************************************
+3214   1733             
+3215   1733             ;**************************************************************************************
+3216   1733             ;* setup streaming system
+3217   1733             ;**************************************************************************************
+3218   1733             Streaming_Init:
+3219   1733             ;--------------------------------------------------------------------------------------
+3220   1733 E8 00       	mov	a, #0				; reset region size
+3221   1735 3F 43 17    	call	Streaming_Resize		;
+3222   1738             ;--------------------------------------------------------------------------------------
+3223   1738 E8 38       	mov	a, #__BRK_ROUTINE__ & 0FFh	; set BRK/TCALL0 vector
+3224   173A C5 DE FF    	mov	!0FFDEH, a			;
+3225   173D E8 18       	mov	a, #__BRK_ROUTINE__ >> 8	;
+3226   173F C5 DF FF    	mov	!0FFDFH, a			;
+3227   1742             ;--------------------------------------------------------------------------------------
+3228   1742 6F          	ret
+3229   1743             	
+3230   1743             ;**************************************************************************************
+3231   1743             ;* RESIZE STREAM
+3232   1743             ;* a = newsize
+3233   1743             ;**************************************************************************************
+3234   1743             Streaming_Resize:
+3235   1743             ;--------------------------------------------------------------------------------------
+3236   1743             ;	call	Streaming_CancelActive
+3237   1743             ;--------------------------------------------------------------------------------------
+3238   1743 C4 EB       	mov	stream_size, a			;
+3239   1745 E8 FF       	mov	a, #0FFh			; calc streaming region address H
+3240   1747 80          	setc					;
+3241   1748 A4 EB       	sbc	a, stream_size			;
+3242   174A C4 EC       	mov	stream_region, a		;
+3243   174C             ;--------------------------------------------------------------------------------------
+3244   174C E8 00       	mov	a, #0			; copy stream buffer address
+3245   174E C5 C0 03    	mov	!StreamAddress, a	;
+3246   1751 C5 C2 03    	mov	!StreamAddress+2, a	;
+3247   1754 E4 EC       	mov	a, stream_region	;
+3248   1756 C5 C1 03    	mov	!StreamAddress+1, a	;
+3249   1759 C5 C3 03    	mov	!StreamAddress+3, a	;
+3250   175C             ;--------------------------------------------------------------------------------------
+3251   175C 6F          	ret
+3252   175D             	
+3253   175D             ;Streaming_CancelActive:
+3254   175D             ;	mov	a, sfx_mask
+3255   175D             ;	and	a, #80h
+3256   175D             ;	beq	streaming_is_inactive
+3257   175D             ;	mov	y, #70h|DSPV_GAIN
+3258   175D             ;	mov	a, #0
+3259   175D             ;	movw	SPC_DSP, ya
+3260   175D             ;	
+3261   175D             ;streaming_is_inactive:
+3262   175D             ;	ret
+3263   175D             	
+3264   175D             ;**************************************************************************************
+3265   175D             ;* START STREAM
+3266   175D             ;**************************************************************************************
+3267   175D             Streaming_Activate:
+3268   175D             ;--------------------------------------------------------------------------------------
+3269   175D E4 F6       	mov	a, SPC_PORT2			; compute volume from panning
+3270   175F 28 0F       	and	a, #15				;
+3271   1761 1C          	asl	a				;
+3272   1762 1C          	asl	a				;
+3273   1763 1C          	asl	a				;
+3274   1764 C4 E8       	mov	stream_volR, a			;
+3275   1766 48 7F       	eor	a, #127				;
+3276   1768 C4 E7       	mov	stream_volL, a			;
+3277   176A             ;--------------------------------------------------------------------------------------
+3278   176A E4 F6       	mov	a, SPC_PORT2			; compute GAIN (v<<3)
+3279   176C 28 F0       	and	a, #0F0h			;
+3280   176E 5C          	lsr	a				;
+3281   176F C4 E9       	mov	stream_gain, a			;
+3282   1771             ;--------------------------------------------------------------------------------------
+3283   1771 FA F7 E6    	mov	stream_rate, SPC_PORT3		; copy rate/PITCH
+3284   1774             ;--------------------------------------------------------------------------------------
+3285   1774 8F 01 EA    	mov	stream_initial, #1		; set initial flag for data routine
+3286   1777             ;--------------------------------------------------------------------------------------
+3287   1777 3F 40 18    	call	StreamResetAddress		;
+3288   177A             ;--------------------------------------------------------------------------------------
+3289   177A 6F          	ret
+3290   177B             	
+3291   177B             ;======================================================================================
+3292   177B             StreamStartChannel:
+3293   177B             ;======================================================================================
+3294   177B 8F 00 EA    	mov	stream_initial, #0	; reset flag
+3295   177E 18 80 E1    	or	sfx_mask, #80h		; patch sfx system
+3296   1781 8F 01 E2    	mov	sfx_next, #1		; 
+3297   1784             ;--------------------------------------------------------------------------------------
+3298   1784 8F 74 F2    	mov	SPC_DSPA, #074h		; SRCN = stream
+3299   1787 8F 50 F3    	mov	SPC_DSPD, #80		;
+3300   178A             ;--------------------------------------------------------------------------------------
+3301   178A 8F 4C F2    	mov	SPC_DSPA, #DSP_KON	; KEYON channel
+3302   178D 8F 80 F3    	mov	SPC_DSPD, #80h		;
+3303   1790             ;--------------------------------------------------------------------------------------
+3304   1790 8F 70 F2    	mov	SPC_DSPA, #070h		; copy volume (panning)
+3305   1793 FA E7 F3    	mov	SPC_DSPD, stream_volL	; 
+3306   1796 AB F2       	inc	SPC_DSPA		;
+3307   1798 FA E8 F3    	mov	SPC_DSPD, stream_volR	;
+3308   179B AB F2       	inc	SPC_DSPA		;
+3309   179D             ;--------------------------------------------------------------------------------------
+3310   179D 8F 00 F3    	mov	SPC_DSPD, #00H		; copy pitch
+3311   17A0 AB F2       	inc	SPC_DSPA		;
+3312   17A2 FA E6 F3    	mov	SPC_DSPD, stream_rate	;
+3313   17A5 AB F2       	inc	SPC_DSPA		;
+3314   17A7 AB F2       	inc	SPC_DSPA		;
+3315   17A9             ;--------------------------------------------------------------------------------------
+3316   17A9 8F 00 F3    	mov	SPC_DSPD, #0		; clear ADSR
+3317   17AC AB F2       	inc	SPC_DSPA		;
+3318   17AE AB F2       	inc	SPC_DSPA		;
+3319   17B0             ;--------------------------------------------------------------------------------------
+3320   17B0 FA E9 F3    	mov	SPC_DSPD, stream_gain	; copy gain
+3321   17B3             ;--------------------------------------------------------------------------------------
+3322   17B3             
+3323   17B3 6F          	ret
+3324   17B4             	
+3325   17B4             ;**************************************************************************************
+3326   17B4             ;* UPDATE STREAM
+3327   17B4             ;**************************************************************************************
+3328   17B4             Streaming_Run:
+3329   17B4             ;--------------------------------------------------------------------------------------
+3330   17B4 8F 80 F4    	mov	SPC_PORT0, #80h		; respond to SNES
+3331   17B7             ;--------------------------------------------------------------------------------------
+3332   17B7 2D          	push	a			; preserve regs
+3333   17B8 4D          	push	x			;
+3334   17B9 6D          	push	y			;
+3335   17BA             ;--------------------------------------------------------------------------------------
+3336   17BA 78 80 F4    _srw1:	cmp	SPC_PORT0, #80h		; wait for snes
+3337   17BD B0 FB       	bcs	_srw1			;
+3338   17BF             ;--------------------------------------------------------------------------------------
+3339   17BF E4 F4       	mov	a, SPC_PORT0		; copy nchunks
+3340   17C1 C4 E3       	mov	stream_a, a		;
+3341   17C3 E4 F5       	mov	a, SPC_PORT1		; check for new note
+3342   17C5 F0 03       	beq	_sr_nstart		;	
+3343   17C7 3F 5D 17    	call	Streaming_Activate	;
+3344   17CA             _sr_nstart:				;
+3345   17CA F8 F4       	mov	x, SPC_PORT0		;
+3346   17CC D8 F4       	mov	SPC_PORT0, x		; respond to snes
+3347   17CE             ;--------------------------------------------------------------------------------------
+3348   17CE             _sr_start:
+3349   17CE 8D 00       	mov	y, #0			; prepare COPYING...
+3350   17D0 3D          	inc	x
+3351   17D1             _sr_wait_for_snes:			;
+3352   17D1 3E F4       	cmp	x, SPC_PORT0		;
+3353   17D3 D0 FC       	bne	_sr_wait_for_snes	;
+3354   17D5             ;--------------------------------------------------------------------------------------
+3355   17D5 2F 05       	bra	_sr_copy
+3356   17D7             
+3357   17D7             _sr_nextcopy:
+3358   17D7 3D          	inc	x
+3359   17D8             _sr_wait3:
+3360   17D8 3E F4       	cmp	x, SPC_PORT0
+3361   17DA D0 FC       	bne	_sr_wait3
+3362   17DC             	
+3363   17DC             ;--------------------------------------------------------------------------------------
+3364   17DC             _sr_copy:				; copy 9 bytes (16 SAMPLES)
+3365   17DC             ;--------------------------------------------------------------------------------------
+3366   17DC E4 F6       	mov	a, SPC_PORT2		; copy first 3 bytes
+3367   17DE D6 00 FE    STRC0:	mov	!0FE00h+0+y, a	;
+3368   17E1 E4 F7       	mov	a, SPC_PORT3		;
+3369   17E3 D6 01 FE    STRC1:	mov	!0FE00h+1+y, a	;
+3370   17E6 D8 F4       	mov	SPC_PORT0, x		;-signal
+3371   17E8 E4 F5       	mov	a, SPC_PORT1		;
+3372   17EA D6 02 FE    STRC2:	mov	!0FE00h+2+y, a	;
+3373   17ED 3D          	inc	x			;
+3374   17EE             _wait1:					; wait for data
+3375   17EE 3E F4       	cmp	x, SPC_PORT0		;
+3376   17F0 D0 FC       	bne	_wait1			;
+3377   17F2             ;--------------------------------------------------------------------------------------
+3378   17F2 E4 F6       	mov	a, SPC_PORT2		; copy next 3 bytes
+3379   17F4 D6 03 FE    STRC3:	mov	!0FE00h+3+y, a	;
+3380   17F7 E4 F7       	mov	a, SPC_PORT3		;
+3381   17F9 D6 04 FE    STRC4:	mov	!0FE00h+4+y, a	;
+3382   17FC D8 F4       	mov	SPC_PORT0, x		;-signal
+3383   17FE E4 F5       	mov	a, SPC_PORT1		;
+3384   1800 D6 05 FE    STRC5:	mov	!0FE00h+5+y, a	;
+3385   1803 3D          	inc	x			;
+3386   1804             _wait2:					; wait for data
+3387   1804 3E F4       	cmp	x, SPC_PORT0		;
+3388   1806 D0 FC       	bne	_wait2			;
+3389   1808             ;--------------------------------------------------------------------------------------
+3390   1808 E4 F6       	mov	a, SPC_PORT2		; copy last 3 bytes
+3391   180A D6 06 FE    STRC6:	mov	!0FE00h+6+y, a	;
+3392   180D E4 F7       	mov	a, SPC_PORT3		;
+3393   180F D6 07 FE    STRC7:	mov	!0FE00h+7+y, a	;
+3394   1812 D8 F4       	mov	SPC_PORT0, x		;-signal
+3395   1814 E4 F5       	mov	a, SPC_PORT1		;
+3396   1816 D6 08 FE    STRC8:	mov	!0FE00h+8+y, a	; wait for data
+3397   1819             ;--------------------------------------------------------------------------------------
+3398   1819 DD          	mov	a, y			; wr += 9
+3399   181A 60          	clrc
+3400   181B 88 09       	adc	a, #9			;
+3401   181D FD          	mov	y, a			;
+3402   181E             ;--------------------------------------------------------------------------------------
+3403   181E 8B E3       	dec	stream_a		; decrement chunk counter
+3404   1820 D0 B5       	bne	_sr_nextcopy		; loop until all blocks transferred
+3405   1822             ;--------------------------------------------------------------------------------------
+3406   1822             _sr_exit:				; update write address
+3407   1822 DD          	mov	a, y			;
+3408   1823 8D 00       	mov	y, #0			;
+3409   1825 7A E4       	addw	ya, stream_write	;
+3410   1827 DA E4       	movw	stream_write, ya	;
+3411   1829 3F 85 18    	call	StreamSetupAddress	;
+3412   182C 78 00 EA    	cmp	stream_initial, #0
+3413   182F F0 03       	beq	_sr_nstart2
+3414   1831 3F 7B 17    	call	StreamStartChannel
+3415   1834             _sr_nstart2:
+3416   1834             ;--------------------------------------------------------------------------------------
+3417   1834 EE          	pop	y			;4
+3418   1835 CE          	pop	x			;4
+3419   1836 AE          	pop	a			;4
+3420   1837 6F          	ret				;6
+3421   1838             	
+3422   1838             __BRK_ROUTINE__:
+3423   1838 0B F4       	asl	SPC_PORT0
+3424   183A B0 01       	bcs	_brk_pass
+3425   183C 6F          	ret
+3426   183D             _brk_pass:
+3427   183D 5F B4 17    	jmp	Streaming_Run
+3428   1840             	
+3429   1840             ; (faster version without overflow checks)
+3430   1840             ;======================================================================================
+3431   1840             StreamResetAddress:
+3432   1840             ;======================================================================================
+3433   1840 EB EC       	mov	y, stream_region
+3434   1842 E8 00       	mov	a, #0 
+3435   1844 DA E4       	movw	stream_write, ya
+3436   1846             do_fast_ssa:
+3437   1846 C5 DF 17    	mov	!STRC0+1, a
+3438   1849 BC          	inc	a
+3439   184A C5 E4 17    	mov	!STRC1+1, a
+3440   184D BC          	inc	a
+3441   184E C5 EB 17    	mov	!STRC2+1, a
+3442   1851 BC          	inc	a
+3443   1852 C5 F5 17    	mov	!STRC3+1, a
+3444   1855 BC          	inc	a
+3445   1856 C5 FA 17    	mov	!STRC4+1, a
+3446   1859 BC          	inc	a
+3447   185A C5 01 18    	mov	!STRC5+1, a
+3448   185D BC          	inc	a
+3449   185E C5 0B 18    	mov	!STRC6+1, a
+3450   1861 BC          	inc	a
+3451   1862 C5 10 18    	mov	!STRC7+1, a
+3452   1865 BC          	inc	a
+3453   1866 C5 17 18    	mov	!STRC8+1, a
+3454   1869 CC E0 17    	mov	!STRC0+2, y
+3455   186C CC E5 17    	mov	!STRC1+2, y
+3456   186F CC EC 17    	mov	!STRC2+2, y
+3457   1872 CC F6 17    	mov	!STRC3+2, y
+3458   1875 CC FB 17    	mov	!STRC4+2, y
+3459   1878 CC 02 18    	mov	!STRC5+2, y
+3460   187B CC 0C 18    	mov	!STRC6+2, y
+3461   187E CC 11 18    	mov	!STRC7+2, y
+3462   1881 CC 18 18    	mov	!STRC8+2, y
+3463   1884 6F          	ret
+3464   1885             	
+3465   1885             ;======================================================================================
+3466   1885             StreamSetupAddress:
+3467   1885             ;======================================================================================
+3468   1885 BA E4       	movw	ya, stream_write
+3469   1887             ;--------------------------------------------------------------------------------------
+3470   1887 68 F0       	cmp	a, #240				; do fast setup if akku won't overflow
+3471   1889 90 BB       	bcc	do_fast_ssa
+3472   188B C5 DF 17    	mov	!STRC0+1, a			; 1st address
+3473   188E CC E0 17    	mov	!STRC0+2, y			;
+3474   1891 BC          	inc	a				;
+3475   1892 F0 46       	beq	_ssa_over_1			;
+3476   1894 C5 E4 17    _ssa1:	mov	!STRC1+1, a			; 2nd
+3477   1897 CC E5 17    	mov	!STRC1+2, y			;
+3478   189A BC          	inc	a				;
+3479   189B F0 40       	beq	_ssa_over_2			;
+3480   189D C5 EB 17    _ssa2:	mov	!STRC2+1, a			; 3rd
+3481   18A0 CC EC 17    	mov	!STRC2+2, y			;
+3482   18A3 BC          	inc	a				;
+3483   18A4 F0 3A       	beq	_ssa_over_3			;
+3484   18A6 C5 F5 17    _ssa3:	mov	!STRC3+1, a			; 4th
+3485   18A9 CC F6 17    	mov	!STRC3+2, y			;
+3486   18AC BC          	inc	a				;
+3487   18AD F0 34       	beq	_ssa_over_4			;
+3488   18AF C5 FA 17    _ssa4:	mov	!STRC4+1, a			; 5th
+3489   18B2 CC FB 17    	mov	!STRC4+2, y			;
+3490   18B5 BC          	inc	a				;
+3491   18B6 F0 2E       	beq	_ssa_over_5			; 
+3492   18B8 C5 01 18    _ssa5:	mov	!STRC5+1, a			; 6th
+3493   18BB CC 02 18    	mov	!STRC5+2, y			;
+3494   18BE BC          	inc	a				;
+3495   18BF F0 28       	beq	_ssa_over_6			;
+3496   18C1 C5 0B 18    _ssa6:	mov	!STRC6+1, a			; 7th
+3497   18C4 CC 0C 18    	mov	!STRC6+2, y			;
+3498   18C7 BC          	inc	a				;
+3499   18C8 F0 22       	beq	_ssa_over_7			;
+3500   18CA C5 10 18    _ssa7:	mov	!STRC7+1, a			; 8th
+3501   18CD CC 11 18    	mov	!STRC7+2, y			;
+3502   18D0 BC          	inc	a				;
+3503   18D1 F0 1C       	beq	_ssa_over_8			;
+3504   18D3 C5 17 18    _ssa8:	mov	!STRC8+1, a			; 9th
+3505   18D6 CC 18 18    	mov	!STRC8+2, y			;
+3506   18D9             ;--------------------------------------------------------------------------------------
+3507   18D9 6F          	ret
+3508   18DA             	
+3509   18DA             _ssa_over_1:
+3510   18DA FC          	inc	y
+3511   18DB 2F B7       	bra	_ssa1
+3512   18DD             _ssa_over_2:
+3513   18DD FC          	inc	y
+3514   18DE 2F BD       	bra	_ssa2
+3515   18E0             _ssa_over_3:
+3516   18E0 FC          	inc	y
+3517   18E1 2F C3       	bra	_ssa3
+3518   18E3             _ssa_over_4:
+3519   18E3 FC          	inc	y
+3520   18E4 2F C9       	bra	_ssa4
+3521   18E6             _ssa_over_5:
+3522   18E6 FC          	inc	y
+3523   18E7 2F CF       	bra	_ssa5
+3524   18E9             _ssa_over_6:
+3525   18E9 FC          	inc	y
+3526   18EA 2F D5       	bra	_ssa6
+3527   18EC             _ssa_over_7:
+3528   18EC FC          	inc	y
+3529   18ED 2F DB       	bra	_ssa7
+3530   18EF             _ssa_over_8:
+3531   18EF FC          	inc	y
+3532   18F0 2F E1       	bra	_ssa8
+3533   18F2             
+3534   18F2             ;--------------------------------------------------------
+3535   18F2             MODULE .END
+3536   18F2             ;--------------------------------------------------------
+tasm: Number of errors = 0

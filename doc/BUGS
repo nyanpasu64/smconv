@@ -1,0 +1,106 @@
+.--------.
+| SMCONV |
+`--------'
+
+sequence must be 200, max_patterns, max_instruments, and max_samples
+must be 64. There must be a way to change these values but I am too
+busy to try and figure out why it won't work right now.
+
+
+.--------------.
+| SOUND DRIVER |
+`--------------'
+
+
+=============================================================================
+
+BUG003: Envelopes are reset with note slides regardless of whether they
+  finished or not. That's not natural tracker behavior if I remember
+  correctly... I did take advantage of this bug once, though, but I prefer
+  mine not reset.
+
+  Perhaps this should be an option with the default being no reset??
+
+=============================================================================
+
+BUG004: The tempo change command can accidentally cause the first tick to
+  come around much later than expected. Most commonly, this is because it's
+  not in the first channel, at least when I noticed it.
+
+WORKAROUND004: Always use tempo command on the first channel
+
+=============================================================================
+
+BUG010: Reduce crackle, clicks, pops...
+
+	It seems like this is reduced in ABNOFX which does not use global
+	volume...More testing is needed to confirm.
+
+=============================================================================
+
+
+.-------------------------.
+| SOUND DRIVER FIXED BUGS |
+`-------------------------'
+
+
+=============================================================================
+
+BUG001: Fast linear increase is never executed due to multiplication
+  limitations. Volume only ever gets to 7E rather than 7F. This is
+  because of a series of three multiplication operations, none of
+  them skipped, that turns FF into FD, which in turn results in the
+  rather unusual maximum.
+
+FIX001: Fast linear increase mapped to 7E in all drivers. [26-March-2016,
+  30-July-2016]
+
+=============================================================================
+
+BUG002: Envelope processing is improperly handled with note
+  delays: they are not delayed with the note, and the previous envelope
+  appears to get frozen in their tracks.
+
+FIX002: added check for note delay at start of Channel_ProcessEnvelope
+  has this fixed the issue? [2-October-2015]
+
+=============================================================================
+
+BUG005: Why is tempo limited to 200? I understand why a lower limit of 80 is
+  mandatory, but tempo can go all the way up to 255, and the timer is able to
+  go that fast.
+
+FIX005: Fixed by Augustus Blackheart [2-October-2015]
+
+=============================================================================
+
+BUG006: Tempo ticks need to be recalibrated. SNESMod's timing, compared to Schism
+  Tracker, is off by (current tempo - 3). This is best indicated when using
+  samples that are timing sensitive to go smoothly, drumbeat samples in
+  particular.
+
+FIX006: Fixed by Augustus Blackheart [10-November-2015]
+
+=============================================================================
+
+BUG007: Ultra low pitches produce glitched values instead of actual low value. Yes,
+  I was crazy enough to go that low with the pitch.
+
+FIX007: Fixed by KungFuFurby [16,17-December-2015]
+
+=============================================================================
+
+BUG009: Surround fails to be disabled when the volume column uses a panning command
+
+FIX009: Fixed by KungFuFurby [20-December-2015]
+
+=============================================================================
+
+
+.---------------------------.
+| SOUND DRIVER KNOWN ISSUES |
+`---------------------------'
+
+BUG008: Noise and pitch modulation are not safe with SFX. Echo is in the same boat,
+  but it is not as serious
+

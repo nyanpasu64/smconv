@@ -1,0 +1,6 @@
+.ifndef __WAVETABLE_INC
+__WAVETABLE_INC = 1
+
+.import WT_C64_SQUARE, WT_NES_01, WT_SMD_01
+
+.endif

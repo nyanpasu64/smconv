@@ -1,0 +1,68 @@
+==============================================================================
+                                  Pattern 0:
+==============================================================================
+
+Row $00:
+--------
+Channel 1:	[FD0] Tempo = $d0
+Channel 2:	[S9F] Set ZMODE to enable filter sweep and change filter delay
+Channel 3:	[ZA0] Delay before changing filter coefficients = $a0
+Channel 4:	[S31] Vibrato ramp down
+Channel 5:	[S35] Vibrato ramp up
+Channel 6:	[S9E] Set ZMODE to modify echo sweep min. and max. values
+Channel 7:	[Z10] Set minimum echo value to $10
+Channel 8:	[Z38] Set maximum echo value to $38
+
+Row $01:
+--------
+Channel 5:	[S05] Turn on pitch modulation for channel 5
+
+==============================================================================
+                                  Pattern 1:
+==============================================================================
+
+Row $00:
+--------
+Channel1:	[S97] Set ZMODE to channel filter sweep
+Channel2:	[S3B] Sweep to bandpass filter
+Channel4 & 5:	[4A4] Vibrato speed $a, depth $4...
+
+Row $01:
+--------
+Channel1:	[S9D] Set ZMODE to modify echo volume sweep and noise sweep
+Channel3:	[S09] Enable noise for channel 3
+
+Row $02:
+--------
+Channel1:	[Z61] Set noise frequency sweep speed to $01
+Channel2:	[Z36] Set minimum noise frequency to $16
+Channel3:	[S4E] Noise frequency ping pong on
+
+Row $03:
+--------
+Channel1:	[ZE1] echo volume sweep with speed $01
+Channel2:	[Z5F] Set maximum noise frequency to $1F
+Channel3:	[S58] Start noise sweep starting at frequency $18
+
+Row $07:
+--------
+Channel2:	[Z38] Set minimum noise frequency to $18
+
+Row $0f:
+--------
+Channel1:	[Z95] Set noise frequency sweep speed to $34
+Channel2:	[Z34] Set minimum noise frequency to $14
+
+Row $13:
+--------
+Channel1:	[Z87] Set noise frequency sweep speed to $26
+Channel2:	[Z32] Set minimum noise frequency to $12
+
+Row $17:
+--------
+Channel1:	[Z7B] Set noise frequency sweep speed to $1A
+
+Row $1F:
+--------
+Channel1:	[Z63] Set noise frequency sweep speed to $02
+	

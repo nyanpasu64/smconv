@@ -1,0 +1,15 @@
+==============================================================================
+                             Pattern Position 00
+==============================================================================
+Channel 1:	[T92] Set Tempo to $92
+Channel 2:	[S09] Enable noise
+Channel 3:	[S9d] so z28 modify echo volume sweep and noise sweep
+Channel 4:	[Z28] Set minimum noise to $08
+
+==============================================================================
+                             Pattern Position 01
+==============================================================================
+
+Channel 1:	[S81] set noise speed to $1
+Channel 2:	[S2f] for high hat, noise is constant $1f
+		[S58] for snare, noise sweeps from $18 to $08 at speed $1

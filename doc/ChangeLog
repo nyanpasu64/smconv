@@ -1,0 +1,222 @@
+`------.
+| 2020 |
+`------'
+
+2020-01-27 Augustus Blackheart:
+	* bin/smconv-osx:
+	Added OSX binary
+
+,------.
+| 2017 |
+`------'
+
+2017-12-13 KungFuFurby:
+	* drivers/snesmod.asm, drivers/snesmod_standard.asm:
+	Fix sound effets for PAL machines. To use Add -D PAL to
+	ASFLAGS	in the Makefile for your project.
+
+2017-07-30 Augustus Blackheart:
+	* drivers/src/mvol-evol-swap.asm: this is code which used
+	to be in ab-nofx.
+
+2017-04-01 Augustus Blackheart:
+	* drivers/celes-0.1h: brought ab-fm-nofx out of hiding as
+	Celes.
+
+2017-03-30 Augustus Blackheart:
+	* drivers/supernofx-0.5.h: uncommented wt_min and wt_max
+	* no need to call _wt_swap_sample, code was placed before
+	increase check.
+
+2017-03-16 Augustus Blackheart:
+	* drivers/ab-sb-0.4.h: added FM code from ab-spc to ab-sb.
+
+	* drivers/ab-spc-0.2.h: add LFO for modulator's amplitude.
+
+2017-03-09 Augustus Blackheart:
+	* drivers/pitchmod-1.2.h, drivers/snesmod-1.3.h: moved driver
+	base from $3c4->$400. Using address $3c4 saved 60 bytes and
+	worked when building a ROM (tested on hardware), however, this
+	broke playback on every single SPC player I tried it on.
+
+	Thanks to b00daw and Savestate for letting me know SPC playback
+	was broken.
+
+	* examples/driver-base-test: SPC and ROM for testing purposes.
+
+	* examples/noise-example2*: Cheap-o Roland Juno 60 wanna-be
+	example.
+
+	* doc/ChangeLog: No more time travel.
+
+2017-03-08 Augustus Blackheart:
+	* Oops, forgot to update the patch byte for SuperSNESMod
+	SPC during the last update. Thanks, b00daw.
+
+	* examples/noise-example1*: Noise hi-hat and snare drum example.
+
+2017-01-09 Augustus Blackheart:
+	* drivers/pitchmod-1.2.h, drivers/snesmod-1.3.h: moved
+	driver base from $400->$3c4, freed up some ram. Deleted CmdExTab_H:
+	all of these commands are at $0exx
+	* drivers/snesmod-1.3.h: added ADSR support, same as the
+	PitchMod version.
+
+2017-01-05 Augustus Blackheart:
+	* drivers/supernofx-0.5.h: Saved some bytes in Command_Tempo and
+	removed high bytes from tables where all routines within a jump
+	table contained the same high byte (such as S4xTab_H).
+	* examples/pwm.*: updated with the higher quality samples from
+	ABNoFX.
+
+2017-01-03 Augustus Blackheart:
+	* drivers/supernofx-0.5.h: Added code to restore original sample
+	when wavetable cycle is disabled.
+
+,------.
+| 2016 |
+`------'
+
+2016-08-29 Augustus Blackheart:
+	* drivers/supernofx-0.4.h: Added wavetable code from ABNOFX
+	* examples/pitchmod_adsr[it|spc]: ADSR example [Pitchmod]
+	* examples/pwm.[it|spc]: wavetable cycle example [SuperSNESMod]
+
+2016-08-03 Augustus Blackheart
+	* drivers/pitchmod-1.2.h: Added the ability to use ADSR instead of
+	direct gain.
+
+2016-07-30 Augustus Blackheart
+	* drivers/*.h: Fast linear increase mapped to 126 because 127 is never
+	reached.
+
+2016-07-28 Augustus Blackheart
+	* drivers/supernofx-0.4.h: only using the channel filter sweep mode for
+	now, saving a bit of ram.
+	* src/help.h: Updated help with the latest info.
+	* doc/supernofx-0.4 changes.txt: Documented command changes from
+	previous version.
+
+2016-07-26 Augustus Blackheart
+	* drivers/ab-spc-0.1.h, supernofx-0.4.h: applied channel filter sweep
+	fix from ab-sb-0.3.h
+
+2016-04-21 Augustus Blackheart
+	* drivers/ab-sb-0.3.h: fix channel filter sweep routine (bypass overflow
+	check if it has been done once and then a channel is skipped)
+
+2016-04-19 Augustus Blackheart
+	* src/help.h: Updated help with the latest info.
+	* doc/supernofx-0.3 changes.txt: Documented command changes from
+	previous version.
+
+2016-04-15 Augustus Blackheart
+	* drivers/pitchmod-1.1.h, snesmod-1.2.h: restored accidentally deleted
+	line "mov y, a ; a = sine[cmem]" in Vibrato routine. Thanks Kung Fu
+	Furby for pointing this out.
+
+2016-03-25 Augustus Blackheart
+	* Makefile: -DBOOST is removed as an option by default if the system
+	detected is MINGW or CYGWIN.
+
+2016-03-26 Augustus Blackheart
+	* drivers/ab-sb-0.2.h: Fast linear increase mapped to 126 because 127
+	is never reached.
+
+2016-03-02 Augustus Blackheart
+	* drivers/*.h: removed duplicate "bra _rnv_set" from Command_RetriggerNote
+	and fixed sine wave vibrato.
+	* drivers/supernofx-0.3.h: changed some commands around, added channel
+	filter sweep, removed old filter sweep routines. Only the channel filter
+	sweep routine works right now.
+
+2016-01-10 Augustus Blackheart
+	* drivers/supernofx-0.2.h: Added noise frequency sweep and the start of
+	tremolo and panbrello from abnofx driver.
+	* examples/pause.spc, examples/super-test1.spc, examples/supersnesmod.sfc
+	examples/tremolo.sfc: updated to latest version of driver.
+	* src/help.h: Updated with the latest info.
+	* src/it2spc.cpp: Updated with latest sound driver.
+	* doc/supernofx-0.2 changes.txt: Documented command changes from previous
+	version.
+
+2016-01-04 KungFuFurby
+	* drivers/*.h: Surround is now disabled when panning is set via volume
+	column.
+
+,------.
+| 2015 |
+`------'
+
+2015-12-30 Augustus Blackheart
+	* it2spc.cpp: give warning is any of the volume envelopes contain
+	less than two nodes. This also prevents the program from crashing
+	under such a circumstance.
+	* drivers: added safety clear for negative octaves which was
+	missing in some of the drivers.
+
+2015-12-19 Augustus Blackheart
+	* it2spc.cpp: made changes to allow for greater maximum number of
+	patterns, samples, and instruments.
+
+2015-12-17 KungFuFurby
+
+	* drivers/*.h: added safety clear for invalid loop points in CMD_LOADE.
+2015-12-16/17 KungFuFruby
+
+	* drivers/*.h: Negative octave handling handling code to ensure that the
+	SPC700 can handle lower pitches than what SNESMod normally supports.
+2015-11-27 Augustus Blackheart
+
+	* drivers: shuffled some code around to make certain SPC players happy.
+2015-11-22 Augustus Blackheart
+
+	* drivers: swapped S36 and S32 so S32 will match Impulse Tracker.
+	* Makefile: removed -p flag for MINGW mkdir.
+2015-11-16 Augustus Blackheart
+
+	* fix echo volume sweep when ping pong filters are used
+	* fix SetFilter routine
+2015-10-04 Augustus Blackheart
+
+	* fix minor bug in Super SNESMod NoFX driver.
+	* moved help text to help.h
+2015-10-02 Augustus Blackheart
+
+	* snesmod-1.2.h, pitchmod-1.1.h: the tempo is no longer
+	limited to 200 also added fix for envelope processing with note
+	delays. added S3x vibrato waveform to snesmod-1.2.h
+	* spc-supernofx.h: updated
+	* added --doc option.
+	* test to see if input filename(s) exist.
+
+2015-10-01 Augustus Blackheart
+	* added the ability to select an alternate sound driver
+	using -d or --driver.
+
+2015-08-19 Augustus Blackheart
+	* source is now in it's own directory, object files are in build
+	directory.
+	* convert.cpp: added version information
+
+2015-07-15 Augustus Blackheart
+	* Added SNESMod lite. If you want to use this edit it2spc.cpp
+
+,------.
+| 2014 |
+`------'
+
+2014-09-13  KungFuFurby
+	* it2spc.cpp: Added patch for correct spc size.
+
+2014-08-07  Augustus Blackheart
+	* Makefile: Added -DPITCHMOD
+	* it2spc.cpp: If PITCHMOD is defined, let's use it.  Otherwise
+	use the original version.
+	* spc_pm1_program.h: added KungFuFurby's modified version of
+	SNESMOD with PitchMod and noise generation.
+
+2014-07-11  Augustus Blackheart
+	* inputdata.cpp: Added #include <stdio.h>
+	* it2spc.cpp: output name is used for soundbank definition.
+	* old ChangeLog lost, staring a new one.
