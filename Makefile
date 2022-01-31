@@ -40,8 +40,8 @@ LDFLAGS := -no-pie
 SOURCE = brr.cpp convert.cpp inputdata.cpp io.cpp it2spc.cpp itloader.cpp
 OBJS := $(addprefix build/, $(SOURCE:.cpp=.o))
 EXE=bin/smconv$(EXEEXT)
-DEFINES = 
-LIBS = 
+DEFINES =
+LIBS =
 
 SRC_DIR	:=	src
 
@@ -59,20 +59,20 @@ all: build $(EXE)
 build/convert.o : Makefile
 
 $(EXE) : $(OBJS)
-	@echo make exe $(notdir $<) 
+	@echo make exe $(notdir $<)
 	$(CP) $(LDFLAGS) $(OBJS) -o $@
 
 build:
 	@[ -d $@ ] || mkdir $(MKDIROPT) $@
 
 build/%.o: %.cpp
-	@echo make cpp obj $(notdir $<) 
+	@echo make cpp obj $(notdir $<)
 	$(CP) $(CXXFLAGS) -o $@ -c $<
 
 build/%.o: %.c
-	@echo make c obj $(notdir $<) 
+	@echo make c obj $(notdir $<)
 	$(CC) $(CFLAGS) -o $@ -c $<
-	
+
 #---------------------------------------------------------------------------------
 clean:
 	rm -fr build $(EXE)
