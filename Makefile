@@ -35,7 +35,7 @@ CC = gcc
 CP = g++
 CFLAGS = -O2 -Wall $(BOOST) -D__BUILD_DATE="\"`date +'%Y%m%d'`\"" -D__BUILD_VERSION="\"$(SM_VERSION)\""
 CXXFLAGS :=	$(CFLAGS) -fno-rtti -fno-exceptions
-LDFLAGS := 
+LDFLAGS := -no-pie
 
 SOURCE = brr.cpp convert.cpp inputdata.cpp io.cpp it2spc.cpp itloader.cpp
 OBJS := $(addprefix build/, $(SOURCE:.cpp=.o))
