@@ -33,7 +33,7 @@ endif
 # -----------------------------------------------------------------------------
 CC = gcc
 CP = g++
-CFLAGS = -O2 -Wall $(BOOST) -D__BUILD_DATE="\"`date +'%Y%m%d'`\"" -D__BUILD_VERSION="\"$(SM_VERSION)\""
+CFLAGS = -Og -g -Wall $(BOOST) -D__BUILD_DATE="\"`date +'%Y%m%d'`\"" -D__BUILD_VERSION="\"$(SM_VERSION)\""
 CXXFLAGS :=	$(CFLAGS) -fno-rtti -fno-exceptions
 LDFLAGS := -no-pie
 
