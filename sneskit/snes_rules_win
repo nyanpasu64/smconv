@@ -1,0 +1,19 @@
+SNESTOOLS	:= $(SNESKIT)/tools
+SNESGRIT	:= $(SNESTOOLS)/snesgrit.exe
+SNESCHK		:= $(SNESTOOLS)/sneschk.exe
+SMCONV		:= $(SNESTOOLS)/smconv.exe
+EXHIROM		:= $(SNESTOOLS)/exhirom.exe
+CC65		:= $(SNESKIT)/cc65/bin
+AS		:= $(CC65)/ca65.exe
+LD		:= $(CC65)/ld65.exe
+
+%.o : %.asm
+	@echo Assembling :: $(notdir $<)
+	@$(AS) $(ASFLAGS) $(INCLUDE) $< -o $@
+
+%.sfc:
+	@echo Linking...
+	@$(LD) $(OFILES) -o $@ $(LDFLAGS) -m $(@:.sfc=.map)
+	@echo ROM Checkup...
+	@$(SNESCHK) $(MAPMODE) $@
+	@echo Okay! :: $(notdir $@)

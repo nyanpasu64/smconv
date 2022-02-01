@@ -1,0 +1,16 @@
+Tools:
+
+smconv:		export sample list and create sample table!
+		accept compressed samples
+		option to use different wav -> brr techniques
+
+snesgrit:	convert mode 5 and mode 7
+
+Examples:
+Recreate things like Secret of Mana menu
+VWF
+Mode 5 example
+
+Snesmod:
+Option for RTL in case you want to call snesmod functions from
+a faraway bank

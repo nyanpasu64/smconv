@@ -1,0 +1,178 @@
+Modules list:
+-------------
+gfx_balls.o:
+    CODE              Offs=000000  Size=00010A  Align=00001  Fill=0000
+gfx_scroll_gold.o:
+    CODE              Offs=00010A  Size=000FAC  Align=00001  Fill=0000
+gfx_credits_red.o:
+    CODE              Offs=0010B6  Size=00001C  Align=00001  Fill=0000
+gfx_logo_atx.o:
+    CODE              Offs=0010D2  Size=000020  Align=00001  Fill=0000
+gfx_credits.o:
+    CODE              Offs=0010F2  Size=000B68  Align=00001  Fill=0000
+gfx_bg3.o:
+    CODE              Offs=001C5A  Size=0000C8  Align=00001  Fill=0000
+snes_init.o:
+    CODE              Offs=001D22  Size=000149  Align=00001  Fill=0000
+snes_zvars.o:
+    ZEROPAGE          Offs=000000  Size=000013  Align=00001  Fill=0000
+snes_joypad.o:
+    CODE              Offs=001E6B  Size=000047  Align=00001  Fill=0000
+    ZEROPAGE          Offs=000013  Size=00000C  Align=00001  Fill=0000
+snes_decompress.o:
+    CODE              Offs=001EB2  Size=0000FF  Align=00001  Fill=0000
+header.o:
+    HEADER            Offs=000000  Size=000050  Align=00001  Fill=0000
+main.o:
+    CODE              Offs=001FB1  Size=000042  Align=00001  Fill=0000
+    BSS               Offs=000000  Size=000220  Align=00001  Fill=0000
+    ZEROPAGE          Offs=00001F  Size=000001  Align=00001  Fill=0000
+bg-scrolltext.o:
+    CODE              Offs=001FF3  Size=000378  Align=00001  Fill=0000
+    BSS               Offs=000220  Size=000016  Align=00001  Fill=0000
+    ZEROPAGE          Offs=000020  Size=000003  Align=00001  Fill=0000
+hdma-lines.o:
+    CODE              Offs=00236B  Size=000076  Align=00001  Fill=0000
+    BSS               Offs=000236  Size=000003  Align=00001  Fill=0000
+    ZEROPAGE          Offs=000023  Size=000003  Align=00001  Fill=0000
+3d.o:
+    CODE              Offs=0023E1  Size=001EAE  Align=00001  Fill=0000
+    ZEROPAGE          Offs=000026  Size=000010  Align=00001  Fill=0000
+
+
+Segment list:
+-------------
+Name                   Start     End    Size    Size  Align
+-----------------------------------------------------------
+ZEROPAGE              000000  000035  000036  000054  00001
+BSS                   000100  000338  000239  000569  00001
+CODE                  808000  80C28E  00428F  017039  00001
+HEADER                80FFB0  80FFFF  000050  000080  00001
+
+
+Exports list by name:
+---------------------
+BGScrollSquish            80A133 RLA    BGScrollText              80A08B RLA    
+CopyPalette               809F96 RLA    DecompressDataVram        809EB2 RLA    
+DoIntro                   80A3E1 RLA    HDMALines                 80A3BF RLA    
+SetupBGScrollText         809FF3 RLA    SetupHDMALines            80A36B RLA    
+__HDATA_LOAD__            80C28F RLA    __HDATA_RUN__             7E0000 RLA    
+__HDATA_SIZE__            000000 REA    _nmi                      809FB4 RLA    
+_start                    809D22 RLA    clear_vram                809D80 RLA    
+frame_ready               00001F RLZ    gfx_ballsTiles            808000 RLA    
+gfx_bg3Pal                809D1A RLA    gfx_bg3Tiles              809C5A RLA    
+gfx_creditsPal            809C3E RLA    gfx_creditsTiles          8090F2 RLA    
+gfx_credits_redPal        8090B6 RLA    gfx_logo_atxPal           8090D2 RLA    
+gfx_scroll_goldPal        8090A6 RLA    gfx_scroll_goldTiles      80810A RLA    
+joy1_down                 000017 RLZ    joy2_down                 00001D RLZ    
+joyRead                   809E6B RLA    m0                        000003 RLZ    
+m4                        00000B RLZ    m5                        00000D RLZ    
+m6                        00000F RLZ    m7                        000011 RLZ    
+main                      809FB1 RLA    memptr                    000000 RLZ    
+oam_hitable               000300 RLA    oam_table                 000100 RLA    
+shadow_hdmaen             000035 RLZ    
+
+
+Exports list by value:
+----------------------
+__HDATA_SIZE__            000000 REA    memptr                    000000 RLZ    
+m0                        000003 RLZ    m4                        00000B RLZ    
+m5                        00000D RLZ    m6                        00000F RLZ    
+m7                        000011 RLZ    joy1_down                 000017 RLZ    
+joy2_down                 00001D RLZ    frame_ready               00001F RLZ    
+shadow_hdmaen             000035 RLZ    oam_table                 000100 RLA    
+oam_hitable               000300 RLA    __HDATA_RUN__             7E0000 RLA    
+gfx_ballsTiles            808000 RLA    gfx_scroll_goldTiles      80810A RLA    
+gfx_scroll_goldPal        8090A6 RLA    gfx_credits_redPal        8090B6 RLA    
+gfx_logo_atxPal           8090D2 RLA    gfx_creditsTiles          8090F2 RLA    
+gfx_creditsPal            809C3E RLA    gfx_bg3Tiles              809C5A RLA    
+gfx_bg3Pal                809D1A RLA    _start                    809D22 RLA    
+clear_vram                809D80 RLA    joyRead                   809E6B RLA    
+DecompressDataVram        809EB2 RLA    CopyPalette               809F96 RLA    
+main                      809FB1 RLA    _nmi                      809FB4 RLA    
+SetupBGScrollText         809FF3 RLA    BGScrollText              80A08B RLA    
+BGScrollSquish            80A133 RLA    SetupHDMALines            80A36B RLA    
+HDMALines                 80A3BF RLA    DoIntro                   80A3E1 RLA    
+__HDATA_LOAD__            80C28F RLA    
+
+
+Imports list:
+-------------
+BGScrollSquish (bg-scrolltext.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/bg_scrolltext.inc(4)
+BGScrollText (bg-scrolltext.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/bg_scrolltext.inc(4)
+CopyPalette (snes_decompress.o):
+    3d.o                      /home/morgan/devel/sneskit/include/snes_decompress.inc(24)
+DecompressDataVram (snes_decompress.o):
+    3d.o                      /home/morgan/devel/sneskit/include/snes_decompress.inc(12)
+DoIntro (3d.o):
+    main.o                    /home/morgan/devel/projects/sneskit/examples/atx-3d/src/main.asm(11)
+HDMALines (hdma-lines.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/hdma_lines.inc(4)
+SetupBGScrollText (bg-scrolltext.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/bg_scrolltext.inc(4)
+SetupHDMALines (hdma-lines.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/hdma_lines.inc(4)
+__HDATA_LOAD__ ([linker generated]):
+    snes_init.o               /home/morgan/devel/sneskit/source/snes_init.asm(5)
+__HDATA_RUN__ ([linker generated]):
+    snes_init.o               /home/morgan/devel/sneskit/source/snes_init.asm(6)
+__HDATA_SIZE__ ([linker generated]):
+    snes_init.o               /home/morgan/devel/sneskit/source/snes_init.asm(7)
+_nmi (main.o):
+    header.o                  /home/morgan/devel/projects/sneskit/examples/atx-3d/src/header.asm(8)
+_start (snes_init.o):
+    header.o                  /home/morgan/devel/projects/sneskit/examples/atx-3d/src/header.asm(8)
+clear_vram (snes_init.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/src/3d.asm(12)
+frame_ready (main.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/src/3d.asm(10)
+gfx_ballsTiles (gfx_balls.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/graphics.inc(4)
+gfx_bg3Pal (gfx_bg3.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/graphics.inc(9)
+gfx_bg3Tiles (gfx_bg3.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/graphics.inc(8)
+gfx_creditsPal (gfx_credits.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/graphics.inc(12)
+gfx_creditsTiles (gfx_credits.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/graphics.inc(11)
+gfx_credits_redPal (gfx_credits_red.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/graphics.inc(14)
+gfx_logo_atxPal (gfx_logo_atx.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/graphics.inc(18)
+gfx_scroll_goldPal (gfx_scroll_gold.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/graphics.inc(20)
+gfx_scroll_goldTiles (gfx_scroll_gold.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/include/graphics.inc(21)
+joy1_down (snes_joypad.o):
+    3d.o                      /home/morgan/devel/sneskit/include/snes_joypad.inc(13)
+joy2_down (snes_joypad.o):
+    3d.o                      /home/morgan/devel/sneskit/include/snes_joypad.inc(13)
+joyRead (snes_joypad.o):
+    main.o                    /home/morgan/devel/sneskit/include/snes_joypad.inc(9)
+m0 (snes_zvars.o):
+    snes_decompress.o         /home/morgan/devel/sneskit/source/snes_decompress.asm(8)
+m4 (snes_zvars.o):
+    snes_decompress.o         /home/morgan/devel/sneskit/source/snes_decompress.asm(8)
+m5 (snes_zvars.o):
+    3d.o                      /home/morgan/devel/sneskit/include/snes_zvars.inc(4)
+    snes_decompress.o         /home/morgan/devel/sneskit/source/snes_decompress.asm(8)
+m6 (snes_zvars.o):
+    3d.o                      /home/morgan/devel/sneskit/include/snes_zvars.inc(4)
+    snes_decompress.o         /home/morgan/devel/sneskit/source/snes_decompress.asm(8)
+m7 (snes_zvars.o):
+    3d.o                      /home/morgan/devel/sneskit/include/snes_zvars.inc(4)
+main (main.o):
+    snes_init.o               /home/morgan/devel/sneskit/source/snes_init.asm(12)
+memptr (snes_zvars.o):
+    snes_decompress.o         /home/morgan/devel/sneskit/source/snes_decompress.asm(8)
+oam_hitable (main.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/src/3d.asm(12)
+oam_table (main.o):
+    3d.o                      /home/morgan/devel/projects/sneskit/examples/atx-3d/src/3d.asm(12)
+shadow_hdmaen (3d.o):
+    hdma-lines.o              /home/morgan/devel/projects/sneskit/examples/atx-3d/src/hdma-lines.asm(5)
+    bg-scrolltext.o           /home/morgan/devel/projects/sneskit/examples/atx-3d/src/bg-scrolltext.asm(5)
+

@@ -1,0 +1,1189 @@
+*****************************************
+*  elitendo intro 3			*
+*  the date aug '93			*
+*  menu options				*
+*  filly part				*
+*  scroller 32*32 animation font	* 
+*  all code by radium ½.		*
+*****************************************
+
+*  hardware registers
+
+initdisp = $2100			;
+
+oamselect= $2101			;for object use
+oamaddrl = $2102
+oamaddrh = $2103
+oam_data = $2104
+
+b_g_mode = $2105
+mozaic   = $2106
+
+bg1scadr = $2107			;tile addresses
+bg2scadr = $2108
+bg3scadr = $2109
+bg4scadr = $210a
+
+bg12nba  = $210b			;data addresses
+bg34nba  = $210c
+
+bg1h_ofs = $210d			;screen xy pointers
+bg1v_ofs = $210e
+bg2h_ofs = $210f
+bg2v_ofs = $2110
+bg3h_ofs = $2111
+bg3v_ofs = $2112
+bg4h_ofs = $2113
+bg4v_ofs = $2114
+
+vram_inc = $2115
+vram_alo = $2116
+vram_ahi = $2117
+vramdatl = $2118
+vramdath = $2119
+
+m7select = $211a
+mod7rega = $211b
+mod7regb = $211c
+mod7regc = $211d
+mod7regd = $211e
+mod7regx = $211f
+mod7regy = $2120
+
+cgramadr = $2121
+cgramdat = $2122
+wi12mask = $2123
+wi34mask = $2124
+wind_obj = $2125
+wind0pos = $2126
+wind1pos = $2127
+wind2pos = $2128
+wind3pos = $2129
+wbg_log  = $212a
+wobj_log = $212b
+mainscrn = $212c
+sub_scrn = $212d
+mainwmsk = $211e
+sub_wmsk = $212f
+cgsw_sel = $2130
+cgaddsub = $2131
+col_data = $2132
+set_init = $2133
+
+vrrddatl = $2139
+vrrddath = $213a
+cgrddata = $213b
+
+apu_io_0 = $2140			;for audio use
+apu_io_1 = $2141
+apu_io_2 = $2142
+apu_io_3 = $2143
+
+nmitimen = $4200			
+ioprtout = $4201
+
+multican = $4202			;calculation hardware
+multiplr = $4203
+dividlow = $4204
+divid_hi = $4205
+divisor  = $4206
+
+hcountlo = $4207			;screen counters
+hcounthi = $4208
+vcountlo = $4209
+vcounthi = $420a
+
+dmaonflg = $420b			;dma on/off flags
+hdmaonfl = $420c
+
+memselec = $420d			;memory_select
+nmiblank = $4210			;detection vbl
+
+hv_b_joy = $4212			;for joypad use
+pad_1_lo = $4218
+pad_1_hi = $4219
+pad_2_lo = $421a
+pad_2_hi = $421b
+
+dma0parm = $4300			;for dma use
+dma0bbus = $4301
+dma0ab_l = $4302
+dma0ab_h = $4303
+dma0ab_t = $4304
+dma0sizl = $4305
+dma0sizh = $4306
+dma0hmmm = $4307
+dma0tabl = $4308
+dma0tabh = $4309
+hdma0lin = $430a
+dma1parm = $4310
+dma1bbus = $4311
+dma1ab_l = $4312
+dma1ab_h = $4313
+dma1ab_t = $4314
+dma1sizl = $4315
+dma1sizh = $4316
+dma1hmmm = $4317
+dma1tabl = $4318
+dma1tabh = $4319
+hdma1lin = $431a
+dma2parm = $4320
+dma2bbus = $4321
+dma2ab_l = $4322
+dma2ab_h = $4323
+dma2ab_t = $4324
+dma2sizl = $4325
+dma2sizh = $4326
+dma2hmmm = $4327
+dma2tabl = $4328
+dma2tabh = $4329
+hdma2lin = $432a
+dma3parm = $4330
+dma3bbus = $4331
+dma3ab_l = $4332
+dma3ab_h = $4333
+dma3ab_t = $4334
+dma3sizl = $4335
+dma3sizh = $4336
+dma3hmmm = $4337
+dma3tabl = $4338
+dma3tabh = $4339
+hdma3lin = $433a
+dma4parm = $4340
+dma4bbus = $4341
+dma4ab_l = $4342
+dma4ab_h = $4343
+dma4ab_t = $4344
+dma4sizl = $4345
+dma4sizh = $4346
+dma4hmmm = $4347
+dma4tabl = $4348
+dma4tabh = $4349
+hdma4lin = $434a
+
+	int				;interrupt table
+ALL	=	start
+	end
+
+fade		= $ff
+textpointer	= $100
+save_		= $102
+scrollpointer	= $104
+
+mtextpointer	= $200 ;w		;used var
+chrsave		= $202 ;b
+menupoint	= $203 ;b
+menu_vram	= $204 ;w
+optionlist	= $210
+padsave		= $230 ;b
+
+fillyx		= $300
+fillyy		= $302
+bg3move		= $304
+
+start	sei	
+	clc	
+	cld
+	xce	
+	rep	#$30		;all 16
+	ldx.l	#$01ff
+	txs
+	sep	#$20
+	lda	#0
+	pha
+	plb
+
+	ldx.l	#0
+	stx	textpointer
+	stx	scrollpointer
+	stx	save_
+
+	jsr	init_registers
+	jsr	clear_vram
+	jsr	screens_to_vram
+	jsr	screen_settings
+	jsr	set_menu
+
+
+	
+	lda	#200
+	sta	bg3move
+
+	ldx.l	#0
+	stx	fillyx
+	stx	fillyy
+
+	ldx.l	#6			;set counter on start value
+	lda	#1
+	sta	optionlist,x
+
+
+	
+	stz	padsave
+	stz	menupoint		;first menu option
+	lda	#$01
+	sta	nmitimen		;joypad on
+
+
+	ldx.l	#$5000+(11*32)+3	;start option line in vram (arrow)
+	stx	menu_vram		;$5000 address tiles bg3
+
+	lda	#0
+	sta	fade
+loop	
+	jsr	wait_vbl
+	jsr	fade_in
+	jsr	bg3move_it
+	jsr	filly_wave
+	jsr	scrollline
+
+;	jsr	animate
+
+	lda	#1			;which controller?	
+	jsr	joy_pads
+	cmp	padsave			;key must be released
+	beq	same
+	sta	padsave	
+	lsr	a
+	bcs	l_right			;right?
+	lsr	a
+ 	bcs	l_left			;left?
+	lsr	a
+	bcs	l_down			;down
+	lsr	a
+	bcs	l_up			;up?
+	lsr	a
+	bcs	exit			;start?
+same
+	jmp	loop
+exit	jmp	start
+	ldx.l	#0			;check option list
+	lda	optionlist,x
+	cmp	#1
+	beq	loop
+	stp
+
+
+l_right	jsr	right
+	jmp	loop
+l_left	jsr	left
+	jmp	loop
+l_up	jsr	up
+	jmp	loop
+l_down	jsr	down
+	jmp	loop
+
+fade_in
+	lda	fade
+	cmp	#$10
+	beq	no_fade
+	sta	initdisp
+	inc	fade
+	
+no_fade	rts
+
+bg3move_it
+	lda	bg3move
+	cmp	#0
+	beq	no_move
+	sta	bg3v_ofs
+	stz	bg3v_ofs
+	dec
+	dec
+	dec
+	dec
+	sta	bg3move
+no_move
+	rts
+
+
+;---------------------------------------;menu
+;---------------------------------------;menu
+down
+	lda 	menupoint
+	cmp     menu_lines
+	beq	no_way	
+	inc	menupoint
+
+	ldx	menu_vram		;menu vram pointer
+	stx	vram_alo
+	lda	#41			;clear old status
+	sta	vramdatl
+	stz	vramdath
+
+
+	rep	#$30
+	lda	menu_vram		;count +32 1 line further
+	adc.l	#32	
+	sta	menu_vram
+	tax
+	sep	#$20
+
+	stx	vram_alo
+	lda	#40			;set arrow
+	sta	vramdatl
+	lda	#$20			;prio 1
+	sta	vramdath
+	rts
+	
+up	lda 	menupoint
+	cmp     #0
+	beq	no_way	
+	dec	menupoint
+
+	ldx	menu_vram		;menu vram pointer
+	stx	vram_alo
+	lda	#41			;clear old status
+	sta	vramdatl
+	lda	#$20			;prio 1
+	sta	vramdath
+
+	rep	#$30
+	lda	menu_vram		;count +32 1 line further
+	sbc.l	#32	
+	sta	menu_vram
+ 	tax
+	sep	#$20
+
+	stx	vram_alo
+	lda	#40
+	sta	vramdatl
+	lda	#$20			;pallet 0 prio 1
+	sta	vramdath
+	rts
+
+no_way
+	jmp	loop
+
+	;right left for yes and no options
+right
+	sep	#$30
+	ldx	menupoint
+	lda	optable,x
+	cmp	#1
+	bmi	right0
+
+	lda	optionlist,x
+	cmp	optable+6		;max counter value
+	beq	no_countup
+	inc				;else inc +1
+	sta	optionlist,x		;countup
+	
+	rep	#$30
+	lda	menu_vram		;vrampointer to option	
+	clc
+	adc.l	#23
+	tax
+	sep	#$20
+	stx	vram_alo
+	sep	#$30			;all 8b
+	ldx	menupoint
+	lda	optionlist,x
+	jsr	make_decimal
+	txa				;high part
+	clc
+	adc	#26			;'0'chr
+	sta	vramdatl
+	lda	#$20			;prio 1
+	sta	vramdath
+	tya				;low part
+	clc
+	adc	#26
+	sta	vramdatl
+	lda	#$20
+	sta	vramdath
+
+no_countup
+	rep	#$30
+	sep	#$20
+	rts
+
+right0	lda	#1
+	sta	optionlist,x		;set optionlist to 1 (yes)
+
+	rep	#$30
+	lda	menu_vram		
+	clc
+	adc.l	#23			;22 chrs	
+	tax
+	sep	#$20
+
+	stx	vram_alo
+	lda	#24			;Y
+	sta	vramdatl
+	lda	#$20			;pallet 0 prio 1
+	sta	vramdath
+
+	lda	#4			;E
+	sta	vramdatl
+	lda	#$20			;pallet 0 prio 1
+	sta	vramdath
+
+	lda	#18			;S
+	sta	vramdatl
+	lda	#$20			;pallet 0 prio 1
+	sta	vramdath
+	rts
+	
+left
+	sep	#$30			;set all 8b
+	ldx	menupoint
+	lda	optable,x
+	cmp	#1			;counter option ?
+	bmi	left0
+
+	lda	optionlist,x
+	cmp	#1
+	beq	no_countdown
+	dec				;else dec
+	sta	optionlist,x		;countdown
+	
+	
+	rep	#$30
+	lda	menu_vram		;vrampointer to option	
+	clc
+	adc.l	#23	
+	tax
+	sep	#$20
+	stx	vram_alo
+	sep	#$30			;all 8b
+	ldx	menupoint
+	lda	optionlist,x
+	jsr	make_decimal
+	txa				;high part
+	clc
+	adc	#26			;'0'chr
+	sta	vramdatl
+	lda	#$20			;prio 1
+	sta	vramdath
+	tya				;low part
+	clc
+ 	adc	#26
+	sta	vramdatl
+	lda	#$20
+	sta	vramdath
+
+no_countdown
+	rep	#$30
+	sep	#$20
+	rts
+
+left0
+	stz	optionlist,x		;set optionlist to zero (no)
+
+	rep	#$30
+	lda	menu_vram		
+	clc
+	adc.l	#23	
+	tax
+	sep	#$20
+	stx	vram_alo
+	lda	#13			;N
+	sta	vramdatl
+	lda	#$20			;pallet 0 prio 1
+	sta	vramdath
+	lda	#14			;O
+	sta	vramdatl
+	lda	#$20			;pallet 0 prio 1
+	sta	vramdath
+
+	lda	#41			;' '
+	sta	vramdatl
+	lda	#$20			;pallet 0 prio 1
+	sta	vramdath
+	rts
+ 	
+;---------------------------------------;make accu decimal
+make_decimal				;output: x high / y low digit
+
+	clc
+	adc	#1
+	ldx	#0
+decimal	sbc	#10			;accu-10
+	bcc	neg
+	inx
+	bra	decimal
+neg	
+	adc	#10
+	
+	tay
+ 	clc
+	rts
+
+
+;---------------------------------------;place the chrs on the screen
+set_menu
+					;firts clear optiontable
+	ldx.l	#10
+clearob	stz	optionlist,x
+	dex
+	bne	clearob	
+
+
+	lda	#$80
+	sta	vram_inc
+
+	ldx.l	#$5000+5*32		;5 lines 32 
+	stx	vram_alo
+
+
+	ldx.l	#0
+	stx	mtextpointer
+	
+next
+	ldx	mtextpointer
+
+	lda	menutext,x		;get character		
+	cmp	#$ff
+	beq	mexit
+		
+	sta	chrsave
+	inx 
+	stx	mtextpointer
+
+	ldx.l	#0
+search	lda	mfonttable,x
+	cmp	chrsave
+	beq	found
+	cmp	#$ff			
+	beq	not_found		;chr was not found in table
+	inx
+	inx
+	bra	search
+not_found
+	ldx.l	#0			
+found	
+	inx
+	lda	mfonttable,x
+	clc
+	sta	vramdatl
+	lda	#$20
+	sta	vramdath
+	bra	next		
+mexit
+	rts
+
+
+;---------------------------------------;end menu part
+;---------------------------------------;joypad part
+joy_pads				;read joystick controllers
+	pha				;controller number on stack
+p_wait	lda	hv_b_joy		;
+	lsr	a			
+	bcs	p_wait			;data ?
+	pla
+	cmp	#1
+	beq	pad_1	
+	lda     pad_2_hi		;then controller 2
+	rts
+pad_1	lda	pad_1_hi		;controller 1
+ 	rts
+
+
+
+;---------------------------------------;animate
+;---------------------------------------
+animate
+	inc	$24
+	lda	$24
+	cmp	#15			;create what delay
+	bne	no_animate
+	stz	$24
+
+
+	ldx	$0e			;save color 7
+	stx	$22
+	
+	ldx.l	#12
+	ldy.l	#14
+setit	lda	$00,x
+	sta	$00,y
+	lda	$00+1,x
+	sta	$00+1,y
+	dex
+	dex
+	dey
+	dey
+	cpx.l	#0
+	bne	setit	
+
+	ldx	$22			;set color 1
+	stx	$02
+
+	lda	#16			;pallet 1
+	sta	cgramadr
+	ldx.l	#0
+
+setcol	lda	$00,x			;set color back to cgram
+	sta	cgramdat
+	inx
+	cpx.l	#32
+	bne	setcol	
+
+no_animate
+	rts
+		
+;---------------------------------------;scroll line
+;---------------------------------------
+scrollline
+	lda	padsave
+	and	#%10000000
+	cmp	#%10000000
+	bne	no_stop	
+	jmp	stop
+no_stop
+	lda	scrollpointer
+	cmp	#32	
+	bne	scrollscreen
+	stz	scrollpointer		
+	jsr	rol_chrs
+	inc	textpointer
+	ldx	textpointer
+	lda	scrolltext,x		;load asci code
+	cmp	#$ff
+	bne	no_reset		;end of scroll line ?
+	ldx.l	#0
+	stx	textpointer	
+	lda	scrolltext,x
+no_reset
+	sta	save_
+		
+
+
+	ldx.l	#0			;find chr in table
+ssearch	lda	scroll_table+1,x	
+	cmp	save_
+	beq	sfound		
+	inx
+	inx
+	inx
+	inx
+	bra	ssearch
+sfound	
+
+	lda	scroll_table+2,x		;get chr number hi
+	sta	save_+1
+
+
+	lda	scroll_table+3,x		;get chr number low
+	sta	save_
+						;pallet 1
+	lda	#4				;set pallet
+	ora	save_+1				;don't change the chr nr
+	sta	save_+1
+	
+	jsr	fill_chrs		
+
+scrollscreen	
+	lda	scrollpointer
+	sta	bg1h_ofs	
+	stz	bg1h_ofs
+	inc	scrollpointer
+ 	inc	scrollpointer
+	inc	scrollpointer
+	inc	scrollpointer
+
+stop	rts
+
+fill_chrs
+	rep	#$30
+	ldx.l   #$0080
+	stx	vram_inc
+
+	ldx.l	#$7000+32*24+1024	;s et vram 1 screen 1024
+	stx	vram_alo		;first line
+
+
+	lda.l	save_			;fill it
+
+					
+	jsr	vramtransfer
+	adc.l	#28
+
+	ldx.l	#$7000+32*25+1024	;896 set vram 1 screen 1024
+	stx	vram_alo		;first line
+
+	jsr	vramtransfer
+	adc.l	#29
+
+	ldx.l	#$7000+32*26+1024	;896		;set vram 1 screen 1024
+	stx	vram_alo		;first line
+
+	jsr	vramtransfer
+	adc.l	#29
+
+	ldx.l	#$7000+32*27+1024	;896		;set vram 1 screen 1024
+	stx	vram_alo		;first line
+
+	jsr	vramtransfer
+	sep	#$20
+	rts
+
+vramtransfer
+	sta	vramdatl	
+	inc
+	sta	vramdatl	
+	inc
+	sta	vramdatl	
+	inc
+	sta	vramdatl	
+	rts
+
+vramtransferxy				;x source y desti
+	stx	vram_alo	
+	lda	vrrddatl		;read vram
+	sty	vram_alo
+	sta	vramdatl		
+	inx	
+	iny
+	rts
+
+rol_chrs
+	rep	#$30			;all 16b
+	ldx.l	#$7000+32*24+4
+	ldy.l	#$7000+32*24+0
+rolline1
+	jsr	vramtransferxy
+	cpy.l	#$7000+32*24+28	
+	bne	rolline1
+
+	ldx.l	#$7000+32*24+1024	;other screen
+	ldy.l	#$7000+32*24+28	
+copy_chr1	
+	jsr	vramtransferxy
+
+	cpy.l	#$7000+32*24+32
+	bne	copy_chr1
+
+	ldx.l	#$7000+32*25+4
+	ldy.l	#$7000+32*25+0
+rolline2
+	jsr	vramtransferxy
+	cpy.l	#$7000+32*25+28
+	bne	rolline2
+
+	ldx.l	#$7000+32*24+1024+32	;other screen
+	ldy.l	#$7000+32*24+28+32	
+copy_chr2	
+	jsr	vramtransferxy
+	cpy.l	#$7000+32*24+32+32
+	bne	copy_chr2
+
+
+	ldx.l	#$7000+32*26+4
+	ldy.l	#$7000+32*26+0
+rolline3
+	jsr	vramtransferxy
+	cpy.l	#$7000+32*26+28	
+	bne	rolline3
+
+
+
+	ldx.l	#$7000+32*24+1024+32*2	;other screen
+	ldy.l	#$7000+32*24+28+32*2	
+copy_chr3	
+	jsr	vramtransferxy
+	cpy.l	#$7000+32*24+32+32*2
+	bne	copy_chr3
+
+	ldx.l	#$7000+32*27+4
+	ldy.l	#$7000+32*27+0
+rolline4
+	jsr	vramtransferxy
+
+	cpy.l	#$7000+32*27+28	
+	bne	rolline4
+
+
+	ldx.l	#$7000+32*24+1024+32*3	;other screen
+	ldy.l	#$7000+32*24+28+32*3	
+copy_chr4	
+	jsr	vramtransferxy
+ 	cpy.l	#$7000+32*24+32+32*3
+	bne	copy_chr4
+	sep	#$20
+	rts
+;---------------------------------------end scroll rout
+;---------------------------------------;
+
+filly_wave
+	lda	fillyy
+	inc
+	sta	bg2v_ofs
+	stz	bg2v_ofs
+	sta	bg2h_ofs
+	stz	bg2h_ofs
+
+	sta	fillyy
+
+
+;	ldx	fillyx
+;	lda	fillyx_curve,x
+;	cmp	#$ff
+;	bne	no_x		
+;	ldx.l	#0
+;no_x
+;	
+;	lda	fillyx_curve,x
+;	sta	bg2h_ofs
+;	stz	bg2h_ofs
+;	inx
+;	stx	fillyx
+
+	rts
+
+
+screens_to_vram
+	ldx.l	#$0000			;set vram scroll font + filly
+	stx	vram_alo
+	ldx.l	#$1801			;18=vram destination
+	stx	dma0parm
+	ldx.l	#font			;from ?
+	stx	dma0ab_l
+	lda	#1			;bank ?
+	sta	dma0ab_t
+	ldx.l	#16384+4096		;size ?
+	stx	dma0sizl
+	lda	#$01			;send to vram dma 0
+	sta	dmaonflg
+	
+	ldx.l	#$4000			;set vram menu font
+	stx	vram_alo
+	ldx.l	#$1801			;18=vram destination
+	stx	dma0parm
+	ldx.l	#mfont			;from ?
+	stx	dma0ab_l
+	lda	#1			;bank ?
+	sta	dma0ab_t
+	ldx.l	#2048			;size ? obj+mfont
+	stx	dma0sizl
+	lda	#$01			;send to vram dma 0
+	sta	dmaonflg
+	
+
+	;-------------------------------set the colors
+	lda	#0			;pallet 0
+	sta	cgramadr
+	ldx.l	#0
+set_menu_col				;setcolor for menu
+	lda	pallet,x
+	sta	cgramdat
+	inx
+	cpx.l	#32
+	bne	set_menu_col
+
+	lda	#16			;pallet 1
+	sta	cgramadr
+	ldx.l	#0
+set_scr_col
+	lda	pallet+32,x		;setcolor in cgram and adress $00
+	sta	cgramdat		;for scroller
+	sta	$00,x
+	inx
+	lda	pallet+32,x
+	sta	cgramdat
+	sta	$00,x
+	inx
+	cpx.l	#32
+	bne	set_scr_col
+
+	lda	#32			;pallet 2
+	sta	cgramadr
+	ldx.l	#0
+set_fil_col				;setcolor for filly
+	lda	pallet+64,x
+	sta	cgramdat
+	inx
+	cpx.l	#32
+	bne	set_fil_col
+
+
+ 	rts
+
+;---------------------------------------;screen settings
+screen_settings
+	lda	#$71			;size 1 two screens
+	sta	bg1scadr		;tile table
+	lda	#$00			;data table
+	sta	bg12nba			;font $0000, filly $4000
+	lda	#$60			;filly tile
+	sta	bg2scadr	
+	lda	#$52			;$5000 tiles menufont
+	sta	bg3scadr
+	lda	#$04			;$4000  menufont data
+	sta	bg34nba	
+
+	lda	#$24			;16*16 data $4000
+	sta	oamselect 
+
+	lda	#$80
+	sta	vram_inc
+
+	;-------------------------------
+
+	ldx.l	#$7000			;make tiles bg1 sfont screen
+	stx	vram_alo
+
+	ldx.l	#656			;black tile
+	ldy.l   #0
+make_fnt_tile
+	stx	vramdatl
+	iny
+	cpy.l	#2048			;tile for two screens	
+	bne     make_fnt_tile
+
+	;-------------------------------
+       	ldx.l	#$6000			;make tiles bg2 filly screen
+	stx	vram_alo
+		
+	rep	#$30
+	lda.l	#$0800+32*16			;pallet 2
+	ldx.l	#8
+make_fil_tile
+	sta	vramdatl
+	inc
+	cmp.l	#32*4+$0800+32*16
+	bne	make_fil_tile
+	lda.l	#$0800+32*16
+	dex
+	bne	make_fil_tile	
+	sep	#$20
+
+	;-------------------------------
+       	ldx.l	#$5000			;make tiles bg3 menu screen
+	stx	vram_alo
+	ldx.l	#0
+	lda	#41
+make_menu_tile
+	sta	vramdatl
+	stz	vramdath
+	inx
+	cpx.l	#32*32*2			;1 screen
+	bne     make_menu_tile
+	rts
+
+
+
+;---------------------------------------;wait for vbl
+wait_vbl	
+	lda	nmiblank
+	and	#$80
+	cmp	#$80
+	bne	wait_vbl
+	lda	nmiblank
+	rts
+	
+w_vblank
+	php			;save program status
+	sep	#$20
+	lda	#$80
+w_v	bit	nmiblank
+	beq	w_v
+	lda	nmiblank	;end of vblank
+	plp			;restore M flag
+	rts
+
+;---------------------------------------;register setttings	
+init_registers
+	stz	nmitimen		;stop nmi...
+	stz	hdmaonfl
+	stz	dmaonflg
+
+
+	stz	oamselect
+	stz	oamaddrl
+	stz	oamaddrh
+	stz	oam_data
+	stz	oam_data
+	stz	b_g_mode
+	stz	mozaic
+	stz	bg1scadr
+	stz	bg2scadr
+	stz	bg3scadr
+	stz	bg4scadr
+	stz	bg12nba
+	stz	bg34nba
+	stz	bg1h_ofs
+	stz	bg1h_ofs
+	stz	bg1v_ofs
+	stz	bg1v_ofs
+	stz	bg2h_ofs
+	stz	bg2h_ofs
+	stz	bg2v_ofs
+	stz	bg2v_ofs
+	stz	bg3h_ofs
+	stz	bg3h_ofs
+	stz	bg3v_ofs
+	stz	bg3v_ofs
+	stz	bg4h_ofs
+	stz	bg4h_ofs
+	stz	bg4v_ofs
+	stz	bg4v_ofs
+	lda	#$80
+	sta	vram_inc
+	stz	vram_alo
+	stz	vram_ahi
+	stz	vramdatl
+	stz	vramdath
+	stz	m7select
+	lda	#$01
+	stz	mod7rega
+	sta	mod7rega
+	stz	mod7regb
+	stz	mod7regb
+	stz	mod7regc
+	stz	mod7regc
+	stz	mod7regd
+	sta	mod7regd
+	stz	mod7regx
+	stz	mod7regx
+	stz	mod7regy
+	stz	mod7regy
+	stz	cgramadr
+	stz	cgramdat
+	stz	wi12mask
+	stz	wi34mask
+	stz	wind_obj
+	stz	wind0pos
+	stz	wind1pos
+	stz	wind2pos
+	stz	wind3pos
+	stz	wbg_log
+	stz	wobj_log
+	stz	mainscrn
+	stz	sub_scrn
+	stz	mainwmsk
+	stz	sub_wmsk
+	lda	#$30
+	sta	cgsw_sel
+	stz	cgaddsub
+	lda	#$e0
+	sta	col_data
+	stz	set_init
+	stz	nmitimen
+	lda	#$ff
+	sta	ioprtout
+	stz	multican
+	stz	multiplr
+	stz	dividlow
+	stz	divid_hi
+	stz	divisor
+	stz	hcountlo
+	stz	hcounthi
+	stz	vcountlo
+	stz	vcounthi
+	stz	dmaonflg
+	stz	hdmaonfl
+	stz	memselec
+
+  	lda	#$80
+	sta	initdisp		;initdisp force blank
+
+	lda	#9			;mode 1 bg & bg 3 highest prio 
+	sta	b_g_mode		;b_g_mode
+
+	lda	#%111			;show bg1+2+3
+	sta	mainscrn
+	rts
+
+;---------------------------------------;wipe out vram
+clear_vram
+    
+clrvram	lda	#$80			;auto increment
+       	sta	vram_inc		
+	ldx.l	#$0000			
+  	sta	vram_alo		
+                                                                          	ldy.l	#$7fff			;32k Word
+	ldy.l	#$7fff
+clear	stx	vramdatl		;vram data low
+	dey
+	bpl	clear
+
+ 	
+	rts
+;---------------------------------------	
+fillyx_curve			          
+	dcb	0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30
+	dcb	32,34,36,38,40,42,44,46,48,50,52,54,56,58,60
+	dcb	62,64,66,68,70,72,74,76,78,80,82,84,86,88,90
+	dcb	92,94,96,98,100
+	dcb	98,96,94,92,90,88,86,84,82,80,78,76,74,72,70
+	dcb	68,66,64,62,60,58,56,54,52,50,48,46,44,42
+	dcb	40,38,36,34,32,30,28,26,24,22,20,18,16,14
+	dcb	12,10,8,6,4,2,$ff	
+
+
+;---------------------------------------	
+scroll_table		;first byte asci code second chr in screen
+	dcw	' ',656
+	dcw	'A',0,'B',4,'C',8,'D',12,'E',16,'F',20,'G',24,'H',28
+	dcw	'I',128,'J',132,'K',136,'L',140,'M',144,'N',148,'O',152
+	dcw	'P',156,'Q',256,'R',260,'S',264,'T',268,'U',272,'V',276
+	dcw	'W',280,'X',284,'Y',384,'Z',388,'.',392,',',396,'!',400
+	dcw	'?',404,'(',408,')',412,$ff
+		;$ff not found then fill with space 
+
+;---------------------------------------;chr table	
+mfonttable
+	dcb	' ',41
+	dcb	'A',0,'B',1,'C',2,'D',3,'E',4,'F',5,'G',6,'H',7,'I',8
+	dcb     'J',9,'K',10,'L',11,'M',12,'N',13,'O',14,'P',15,'Q',16
+	dcb	'R',17,'S',18,'T',19,'U',20,'V',21,'W',22,'X',23,'Y',24
+	dcb	'Z',25,'0',26,'1',27,'2',28,'3',29,'4',30,'5',31,'6',32
+	dcb	'7',33,'8',34,'9',35,'.',36,',',37,'!',38,'?',39,'>',40
+ 	dcb	$ff
+
+menutext
+;text starts at 5*32 in vram
+
+	dcb	'             ELITENDO           '
+	dcb	'                                '
+	dcb	'             PRESENTS           ' 
+	dcb	'                                '
+	dcb	'           TERMINATOR 6         '
+	dcb	'                                '
+	dcb	'   >SLOW ROM FIX          NO    ' ;first level option
+	dcb	'    UNLIMITED LIVES       NO    '
+	dcb	'    UNLIMITED ENERGY      NO    '
+	dcb	'    UNLIMITED WEAPONS     NO    '	
+	dcb	'    UNLIMITED TIME        NO    '
+	dcb	'    LEVEL CHEAT           NO    '
+	dcb	'    STARTING LEVEL        01    '
+	dcb	'                                '
+	dcb	'     PRESS START TO GO ON !     '
+	dcb	$ff		;end of text
+	
+;op.table $00 -Y/N option greater than $00 -counter max select  
+;optionlist 0-no 1-yes 
+menu_lines	
+	dcb	6				;menulines-1	
+optable	dcb	$00,$00,$00,$00,$00,$00,$20,$ff	;option
+
+
+
+scrolltext
+	dcb	' RELEASED BY MAGICAL TRAINED BY MCA '
+	dcb	'                                    '
+ 	dcb	'GREETZ FLY OUT TO.. VISION..DAX AND CORSAIR..'
+	dcb     'LEGEND..ANTHROX..FAIRLIGHT..VISA..PREMIERE..'
+	dcb     'CENSOR..WARDUKE AND RTS .... INTROCODE BY RADIUM'
+	dcb 	'..GRAPHICART BY LOWLIFE AND RADIUM',$FF
+
+
+pallet	
+	dcb	$00,$00,$ff,$ff,$ff,$ff,$ff,$ff
+	dcb	$00,$00,$10,$42,$94,$52,$18,$63
+	dsb	16
+ 	;bin	g:\intro\elitn2p8.col		;32	2 plains
+	bin	g:\intro\32font.col		;32
+	bin	g:\intro\filly.col		;32
+	pad				;bank 1
+font	bin	g:\intro\32font.sns		;25600
+	bin     g:\intro\filly.dat		;4096
+mfont	bin	g:\intro\elitn2p8.sns		;2048 2 plane font
+
+	
+
+
+
+

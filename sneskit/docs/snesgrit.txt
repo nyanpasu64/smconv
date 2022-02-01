@@ -1,0 +1,90 @@
+
+.-------------------------.
+: MODE 1 | 4bpp GRIT FILE :
+`-------------------------`
+
+	-gB4		; gfx bit depth
+	-gt		; tiled gfx
+	-gzl		; gfx compressed with lz77
+	-m		; include map data (-m! to exlude)
+	-mzl		; map compressed with lz77
+	-ma1024		; optional: see notes
+	-pe12		; optional: set if using less than the maximum
+			;  -p! to exlude
+	-fsGRAPHICS	; optional: segment name; not setting this
+			;  will place the data in segment CODE
+
+
+.---------------------------.
+:  MODE 1 | 4bpp MAP OFFSET :
+`---------------------------`
+
+ If your tile data is stored at ?000 no offset is needed unless you want
+to set the palette:
+
+	Palette 0	; nothing needed this is the default
+	Palette 1	-ma1024
+	Palette 2	-ma2048
+
+ and so forth...
+
+ If your tile data is stored at ?800 add offset 64:
+
+	Palette 0	-ma64
+	Palette 1	-ma1088
+	Palette 2	-ma2112
+
+
+.-------------------------.
+: MODE 1 | 2bpp GRIT FILE :
+`-------------------------`
+
+	-gB2		; gfx bit depth
+	-gt		; tiled gfx
+	-gzl		; gfx compressed with lz77
+	-m		; include map data
+	-mzl		; map compressed with lz77
+	-ma8192		; optional: see values below
+	-pe3		; optional: set if using less than the maximum
+	-fsGRAPHICS	; optional: segment name; not setting this
+			;  will place the data in segment CODE
+
+
+.---------------------------.
+:  MODE 1 | 2bpp MAP OFFSET :
+`---------------------------`
+
+ BG3 map offset values start with palette 0, color #1-4.  The values
+listed below may be incremented by 1024 to add 4 to the starting
+color (palette0: 0-3,4-7,8-11,12-15, palette1: 0-3,4-7,8-11,12-15).
+
+ Adding 8192 will set horizontal, vertical or bg3 priority bits.
+
+	-ma8192  = bg3 priority
+	-ma16384 = horiz flip
+	-ma24576 = horiz flip + bg3 priority
+	-ma32768 = vert flip
+	-ma40960 = vert flip + bg3 priority
+	-ma49152 = horiz flip + vert flip
+	-ma57344 = horiz flip + vert flip + bg3 priority
+
+
+.-------------------------.
+: MODE 3 | 8bpp GRIT FILE :
+`-------------------------`
+
+	-gB8		; If you've read this whole thing
+	-gt		; than you already know about all
+	-gzl		; of this stuff
+	-ga16		; optional: see note below
+	-m		; 
+	-mzl		; 
+	-pe128		;
+	-fsGRAPHICS	;
+
+
+.---------------------------.
+:  MODE 3 | 8bpp GFX OFFSET :
+`---------------------------`
+
+ -ga to select starting color

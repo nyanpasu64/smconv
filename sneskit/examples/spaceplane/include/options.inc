@@ -1,0 +1,10 @@
+.ifndef __OPTIONS_INC__
+__OPTIONS_INC__ = 1
+
+OPTION_FADE_OUT		= %00000010
+OPTION_MOSAIC		= %00000100
+OPTION_FRAME_READY	= %00001000
+
+.globalzp options
+
+.endif

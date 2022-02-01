@@ -1,0 +1,3 @@
+#!/bin/sh
+bar="-------------------------------------------------------------------------"
+echo -e "$bar\nThis shell script is a placeholder to maintain the existing makefile.\nRemove SNESCHK from snes_rules if you are seeing this and it annoys you.\n$bar"

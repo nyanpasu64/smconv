@@ -1,0 +1,68 @@
+#-------------------------------------------------------------------------
+# SNES MODE 20H (LoROM) Memory Specification
+#-------------------------------------------------------------------------
+
+#*************************************************************************
+MEMORY {
+#*************************************************************************
+
+#-------------------------------------------------------------------------
+# ZROM used for program code (32k)
+# really at bank 80h but use 0 to avoid asm errors
+#-------------------------------------------------------------------------
+	ZROM:	start = $808000, size = $7FB0, fill = yes;
+	CHEAD:	start = $80ffb0, size = 80, fill = yes;
+
+#-------------------------------------------------------------------------
+# insert rom sections for program data
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+# 128K memory
+#-------------------------------------------------------------------------
+
+	ZPAGE:	start = $0000, size = 256;	# 8k loram
+	LORAM:	start = $0100, size = 7936;	#
+	HIRAM1:	start = $7e2000, size = 57344;	# 56k hiram1
+	HIRAM2:	start = $7e0000, size = 65536;	# 64k hiram2
+}
+
+#*************************************************************************
+SEGMENTS {
+#*************************************************************************
+
+#-------------------------------------------------------------------------
+# standard segments
+#-------------------------------------------------------------------------
+	CODE:		load = ZROM, type = ro;		# 32k code
+	HEADER:		load = CHEAD, type = ro;	# cartridge header
+	ZEROPAGE:	load = ZPAGE, type = zp;	# zero page
+	BSS:		load = LORAM, type = bss;	# 8k (minus zpage) bss
+	RODATA:		load = ZROM, type = ro;		# some rodata...
+	
+#-------------------------------------------------------------------------
+# Note: when using HRAM or HRAM2 or HDATA you must use FAR addressing:
+#
+# .segment "HRAM": far
+#
+# the segment word 'data' can't be used because i can't figure out how to
+# override the addressing mode
+#
+#-------------------------------------------------------------------------
+	
+	HRAM:		load = HIRAM1, type = bss;	# 56K+64K HRAM
+	HRAM2:		load = HIRAM2, type = bss;	# 
+	
+#-------------------------------------------------------------------------
+# select load and run segments for HDATA
+# default: load in ROM1, run in 64k HIRAM2
+#-------------------------------------------------------------------------
+
+	HDATA:		load = ZROM, run = HIRAM2, type = rw, define = yes;
+	
+#-------------------------------------------------------------------------
+# custom segments (insert as needed)
+#-------------------------------------------------------------------------
+
+	SNESMOD:	load = ZROM, type = ro, offset = $4000;
+
+}

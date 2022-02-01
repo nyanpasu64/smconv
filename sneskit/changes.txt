@@ -1,0 +1,12 @@
+
+2020-01-27: tools/smconv-osx
+
+	Now with OSX binary
+
+2019-08-25: source/snes_decompress.asm:
+
+	Updated to preserve m0
+
+2020-10-28: source/snes_init.asm:
+
+	Updated code. Now offers ClearWorkRAM7E & ClearWorkRAM7F

@@ -1,0 +1,640 @@
+;---------------------------------------------------------------------
+; 2e RTS Intro, Coded By Dizzy & The Doctor..........
+;---------------------------------------------------------------------
+          int
+res       = start
+          end
+
+hv_b_joy  equ   $4212
+pad_1_hi  equ   $4219
+pad_2_hi  equ   $421b
+vram_alo  equ   $2116
+vramdatl  equ   $2118
+vramdath  equ   $2119
+
+counter   equ   $210
+joypad    equ   $212
+
+scrlpos	  equ	$500
+scrlval	  equ	$502
+txt_off   equ	$504
+hd_scrl	  equ	$506
+scrl8al	  equ	$540
+
+mtextpointer	= $20 ;w		;used var
+menupoint	= $23 ;b
+menu_vram	= $24 ;w
+padsave		= $30 ;b
+optionlist	= $40
+
+;------------------------------------------
+top_w		= 32*12+3	;32*3
+menu_lines 	= 6*2		;(total*2)-2
+mlines		= 7		;aantal regels onder 
+levels 		= 7		;total		;menu lines
+trnadres 	= $700000	;sram
+bank 		= $00		;bank waar de intro staat
+orgbank		= $00		;originele bank
+pro 		= $0000		;highrom games +$8000
+game 		= $008000	;reset vector
+;------------------------------------------
+start      sei			; INIT 
+	   lda	   #0
+	   pha
+           plb
+           sep     #$30
+           lda     #$8f
+           sta     $2100
+
+	   ldx	   #1
+cln3       stz     $2100,x
+	   inx
+	   cpx     #$d
+	   bne	   cln3
+
+cln4       stz     $2100,x
+	   stz     $2100,x
+	   inx
+	   cpx	   #$15
+	   bne	   cln4
+
+           lda     #$80
+           sta     $2115
+           stz     $2116
+           stz     $2117
+           stz     $211a
+           stz     $211b
+           lda     #$01
+           sta     $211b
+           stz     $211c
+           stz     $211c
+           stz     $211d
+           stz     $211d
+           stz     $211e
+           lda     #$01
+           sta     $211e
+	   stz     $211f
+           stz     $211f
+           stz     $2120
+           stz     $2120
+
+	   ldx	   #$21
+cln5       stz     $2100,x
+	   inx
+	   cpx	   #$30
+	   bne	   cln5
+
+           lda     #$30
+           sta     $2130
+           stz     $2131
+           lda     #$e0
+           sta     $2132
+           stz     $2133
+           stz     $4200
+           lda     #$ff
+           sta     $4201
+	   ldx	   #2
+cln1       stz     $4200,x
+	   inx
+	   cpx	   #$d
+	   bne	   cln1
+
+           lda     #$81
+           sta     $4212
+           clc
+           xce     ; 16 bit mode
+           rep     #$30            ; x,y,a fixed -> 16 bit mode
+	   lda.l   #$1f00
+	   tas
+           sep     #$20            ; accumulator ->  8 bit mode
+           lda     #$01
+           sta     $4200           ; dma clear
+
+           jsr     clear_ram
+           lda	   #%00001001
+           sta     $2105           ; screen mode 0
+           lda     #$4
+	   sta     $2107           ; 1st layer in $0000
+           lda     #$8             ; 
+           sta     $2108           ; 2nd layer in $0400
+	   lda 	   #$0
+           sta     $2109           ; 3rd layer in $0800
+           lda	   #$c
+	   sta     $210a		; 4th layer in $0c00
+           lda     #$22            ; tile vram = $1000 for playfield 1
+           sta     $210b           ;           = $5000 for playfield 2
+	   lda	   #$11
+	   sta	   $210c
+	   lda     #%00100         ; enable playfields
+           sta     $212c	   ; 
+
+           lda     #$80            ; automatic increase vram adres whenever
+           sta     $2115           ; you write in it or read out of it.
+           ldx.l   #$ff00		; Erase Video ram
+           ldy.l   #$0
+           sty     $2116		; vram=$0
+clrall     sty     $2118		; erase
+           dex
+           bne     clrall
+        
+           ldx.w   #$1000+256
+           stx     $2116
+           ldx.l   #0
+copy2      lda.l   font8x8+32,x
+           sta     $2118
+           inx
+           lda.l   font8x8+32,x
+           sta     $2119
+           inx
+           cpx.l   #944
+           bne     copy2
+
+;***************** zet menu text ****************************************
+ 
+           ldx.w   #32*3+3	;32*3	top line start
+           stx     $2116
+           ldy.w   #3
+           ldx.w   #0
+copystr    phy
+           ldy.w   #0
+copyk      lda.l   ktext,x
+           sta     $2118
+           lda     #%00101100
+           sta     $2119
+           inx
+           iny
+           cpy.w   #32-6  	;7 colored lines
+           bne     copyk
+           phx
+           ldx.w   #32+6
+copyclr    stz     $2118
+           stz     $2119
+           dex
+           bne     copyclr
+           plx
+           ply
+           dey
+           bne     copystr
+           
+           ldx.w   #top_w
+           stx.w   $2116
+           ldy.w   #mlines
+           ldx.w   #0
+copy3lop   phy
+           ldy.w   #0
+copy3      lda.l   mtext,x	;others normal
+           sta     $2118
+           lda     #%00100100
+           sta     $2119
+           inx
+           iny
+           cpy.w   #32-6
+           bne     copy3
+           phx
+           ldx.w   #6
+clrlop1    stz     $2118
+           stz     $2119
+           dex
+           bne     clrlop1
+           plx
+           ply
+           dey
+           bne     copy3lop
+           ldx.w   #top_w
+           jsr     greenline
+
+;*******************************************************
+
+	   lda     #0		; copy color palette
+	   sta     $2121
+           jsr     copycol
+
+           lda     #%11
+           sta     $2124
+           lda     #8
+           sta     $2126
+           lda     #255-8
+	   sta     $2127
+           lda     #%100
+           sta     $212e
+
+;*****************************************************
+; Hdma Init shit..
+;*****************************************************
+
+	   stz     $420c  	; zet hdma uit
+           stz     $4310  	; per regel dan.
+           lda     #$21   	; kopieer naar adres $2100 + $0d
+           sta     $4311  	; iedere regel moeten de 2 bytes naar $210d
+	
+           ldx.l   #kleuren
+	   stx	   $4312
+           lda     #bank 
+	   sta     $4314	; bank waar tabel instaat
+           sta     $4324
+
+           lda	   #$2
+	   sta	   $4320
+           sta     $4300
+	   lda	   #$22
+	   sta	   $4321
+	   ldx.l   #kleuren1
+	   stx	   $4322
+
+           lda 	   #$11   	; kopieer naar adres $2100 + $11 (hscrl layer 3)
+           sta 	   $4301  	; 
+	   ldx.l   #hd_scrl
+	   stx     $4302
+	   stz     $4304	; bank waar tabel instaat
+
+;********************* END HDMA ****************
+
+	   lda	   #127		; 1e 127 lijnen niet scrollen
+	   sta	   hd_scrl
+           lda     #16*3
+	   sta	   hd_scrl+3
+           lda     #127-(16*3)
+           sta     hd_scrl+6
+
+	   ldx.l   #23*32	; laatste teken van scroll op scherm
+	   stx	   scrlval
+
+;****************************************************
+
+	   ldx.w   #top_w
+           stx     menu_vram
+
+	   ldx.l   #menu_lines+2
+clearob	   stz	   optionlist,x
+	   dex	
+	   bne	   clearob
+	
+	   ldx.l   #menu_lines
+	   lda	   #1
+	   sta	   optionlist,x
+
+           lda     #$0f
+           sta     $2100		; screen visible
+
+;****************************************************************
+; Main loop of programme......
+;****************************************************************
+
+vbl        jsr	   vsync
+	   lda	   #%111	        ; kanaal 0-2 aan van hdma
+	   sta	   $420c	
+
+           lda     #$8f
+           sta     $2100
+
+txtscrl    lda     scrlpos
+	   inc	                
+           inc
+	   sta	   hd_scrl+7
+	   sta	   scrlpos
+           inc     scrl8al
+           inc     scrl8al
+           lda     scrl8al
+	   cmp	   #8   			; deelbaar door 8 (don't ask)????
+	   bne	   p_wait
+           stz     scrl8al
+	   ldx.w   scrlval
+	   stx	   $2116			; op welk vram adres schrijven
+	   inx
+	   cpx.l   #23*32+32
+	   bne	   go_on
+	   ldx.l   #23*32
+go_on	   stx	   scrlval
+	   ldx.w   txt_off
+again	   lda	   text,x
+	   cmp	   #255		        	; Eind van de txt???????
+	   bne	   go_on2
+	   ldx.w   #0	
+	   stx     txt_off
+	   bra     again
+go_on2	   sta	   $2118			; pleur char in vram
+           lda     #%00101000
+   	   sta	   $2119
+	   inx
+	   stx	   txt_off			; volgend character
+
+;********************************************** menu routs
+
+p_wait     ldy.w   #100
+ffwachte   nop                          ;moet joypad kan pas na aantal
+           dey                          ;cycles goed gelezen worden....
+           bne     ffwachte
+           lda     joypad		;then controller 2
+	   cmp	   padsave		;key must be released
+	   beq	   same
+	   sta	   padsave	
+	   lsr	   a
+	   bcs	   l_right		;right?
+	   lsr	   a
+ 	   bcs	   l_left		;left?
+	   lsr	   a
+	   bcs	   l_down		;down
+	   lsr	   a
+	   bcs	   l_up			;up?
+	   lsr	   a
+	   bcs	   exit			;start?
+same       lda     pad_1_hi
+           ora     pad_2_hi
+           sta     joypad
+           lda     #$0f
+           sta     $2100
+ 	   jmp	   vbl
+
+;*******************************************;menu
+
+l_right	   jsr	   right
+	   jmp	   same
+l_left	   jsr	   left
+	   jmp	   same
+l_up	   jsr	   up
+	   jmp	   same
+l_down	   jsr	   down
+           jmp	   same
+
+exit	   rep	   #$30
+	   sep	   #$20
+	   stz	   $4200		;stop nmi...
+	   stz	   $420b
+	   stz	   $420c
+	   lda	   #$80
+	   sta	   $2100
+	   jsr	   clear_vram
+
+	   ldx.l   #menu_lines+2
+copytrn	   lda	   optionlist,x
+	   sta.l   trnadres,x
+	   dex
+	   bpl	   copytrn
+
+	   jsr	   clear_ram
+	   sep	   #$30
+	   lda	   #orgbank
+	   pla
+	   plb
+	   jml	   game
+
+;---------------------------------------;menu
+down	   lda 	   menupoint
+	   cmp     #menu_lines
+	   beq	   no_way	
+	   inc	   menupoint
+	   inc	   menupoint
+
+	   jsr	   whiteline
+	   stz	   vramdath
+
+	   rep	   #$30
+	   lda	   menu_vram		;count +32 1 line further
+	   clc
+	   adc.l   #32	
+	   sta	   menu_vram
+	   tax
+	   sep	   #$20
+
+;----------------------------------------------------
+greenline  stx	   vram_alo
+	   lda	   #$3e		        ;set arrow
+	   sta	   vramdatl
+           lda     #$20
+lpp1       ldx.l   #28
+lpp2	   sta	   vramdath
+	   dex
+	   bne	   lpp2
+	   rts
+
+whiteline  ldx	   menu_vram		;menu vram pointer
+	   stx	   vram_alo
+           lda     #32	
+	   sta	   vramdatl		;clear old status
+	   lda	   #$20+4		;prio 1/color
+           bra     lpp1
+
+;----------------------------------------------------
+up	   lda 	   menupoint
+	   cmp     #0
+	   beq	   no_way	
+	   dec	   menupoint
+	   dec	   menupoint
+
+	   jsr	   whiteline
+	   lda	   #$20+4			;prio 1
+	   sta	   vramdath
+
+	   rep	   #$30
+	   lda	   menu_vram		;count one back
+	   sec
+	   sbc.l   #32	
+	   sta	   menu_vram
+ 	   tax
+	   sep	   #$20
+
+	   jmp	   greenline
+
+no_way	   rts
+
+           ;right left for yes and no options
+
+right	   sep	   #$30
+	   ldx	   menupoint
+	   lda.l   optable,x
+	   cmp	   #1
+	   bmi	   right0
+
+	   lda	   optionlist,x
+	   cmp.l   optable2		;max counter value(level)
+	   beq	   no_count
+	   inc	   a			;else inc +1
+	   sta	   optionlist,x		;countup
+	
+do_decimal rep	   #$30
+	   lda	   menu_vram		;vrampointer to option	
+	   clc
+	   adc.l   #23
+	   tax
+	   sep	   #$20
+	   stx	   vram_alo
+	   sep	   #$30			;all 8b
+	   ldx	   menupoint
+	   lda	   optionlist,x
+	   jsr	   make_decimal
+	   txa				;high part
+           jsr     putdeci
+	   tya				;low part
+           jsr     putdeci
+
+no_count   rep	   #$30
+	   sep	   #$20
+	   rts
+putdeci	   clc
+	   adc	   #$30			;'0'chr
+	   sta	   vramdatl
+	   lda	   #$20			;prio 1
+	   sta	   vramdath
+           rts
+
+right0     lda	   #1
+	   sta	   optionlist,x		;set optionlist to 1 (yes)
+           rep     #$30
+           ldx.w   #0
+           jmp     doyesno
+	
+left       sep	   #$30			;set all 8b
+	   ldx	   menupoint
+	   lda.l   optable,x
+	   cmp	   #1			;counter option ?
+	   bmi	   left0
+
+	   lda	   optionlist,x
+	   cmp	   #1
+	   beq	   no_count
+	   dec				;else dec
+	   sta	   optionlist,x		;countdown
+           jmp     do_decimal
+
+left0	   stz	   optionlist,x		;set optionlist to zero (no)
+           rep     #$30
+           ldx.w   #3
+ 	
+doyesno	   phx
+	   lda	   menu_vram		
+	   clc
+	   adc.l   #23			;22 chrs	
+	   tax
+	   sep	   #$20
+	   stx	   vram_alo
+           plx
+    	   ldy.w   #3
+doynlop    lda.w   yesno,x		
+	   sta	   vramdatl
+	   lda	   #$20			;pallet 0 prio 1
+	   sta	   vramdath
+           inx
+           dey
+           bne     doynlop
+           rts
+
+yesno      dcb 'YESNO '
+
+;---------------------------------------;make accu decimal
+make_decimal				;output: x high / y low digit
+	   clc
+	   ldx	   #0
+	   sec
+decimal	   sbc	   #10			;accu-10
+	   bcc	   neg
+	   inx
+	   bra	   decimal
+neg	   clc	
+	   adc	   #10
+	   tay
+ 	   clc
+	   rts
+
+;*********** CLEAR RAM & VRAM ROUTS ***********************************
+
+clear_vram lda	   #$80			;auto increment
+       	   sta	   $2115		
+	   ldx.l   #$0000			
+  	   sta	   vram_alo		
+	   ldy.l   #$7fff
+clear	   stx	   vramdatl		;vram data low
+	   dey
+	   bpl	   clear
+	   rts
+
+clear_ram  ldx.l   #$1000
+clram	   stz.w   $0000,x
+	   dex
+	   bne	   clram
+	   rts
+
+;*************************************************************************
+; Copy kleuren pallet...
+;*************************************************************************
+
+copycol	   ldx.l   #0
+color2     lda.l   font8x8,x
+           sta	   $2122
+           inx
+           cpx.l   #$40
+	   bne	   color2  	
+           rts
+
+;*************************************************************************
+
+vsync 	  lda	 $4210
+	  and	 #$80
+	  cmp	 #$00
+	  beq	 vsync
+	  lda	 $4210
+	  rts
+
+;**************** MENU TEXT + TRAINER DATA *******************************
+
+ktext     dcb	'     E L I T E N D O      '
+	  dcb	'         TRAINED          ' 
+	  dcb	'        MAGIC BOY         '
+mtext	  dcb	'>SLOWROM FIX           NO '
+	  dcb	' UNLIMITED LIVES       NO '
+	  dcb	' UNLIMITED ENERGY      NO '
+	  dcb	' UNLIMITED TIME        NO '
+	  dcb	' UNLIMITED XXXXX       NO '
+	  dcb	' UNLIMITED YYYYYY      NO '
+	  dcb	' START AT LEVEL        01 '
+	  dc.b	$ff
+
+optable	  dcb	0,0,0,0,0,0,0,0,0,0,0,0,1,0 	;normal options
+optable2  dcb	levels,levels,$ff,$ff
+
+font8x8   bin	"e:\snes.src\little\8x8fnt2a.bp2"	;packed grafix
+
+kleuren   dc.b 17,0
+          dc.b 1,$0
+          dc.b 49,$0
+          dc.b 1,$0
+          dc.b 6,$0
+          dc.b 1,$0
+          dc.b 96,$0
+          dc.b 1,0
+          dc.b 6,0
+          dc.b 1,$0
+          dc.b 8+7,$0
+          dc.b 1,0
+          dc.b 20,0
+          dc.b $0,$0
+
+kleuren1  dc.b 17,0,0
+          dc.b 1,50,0
+          dc.b 49,45,0
+          dc.b 1,40,0
+          dc.b 6,0,0
+          dc.b 1,0,60
+          dc.b 96,0,40
+          dc.b 1,0,32
+          dc.b 6,0,0
+          dc.b 1,224-127,1
+          dc.b 8+7,224,0
+          dc.b 1,224-64,0
+          dc.b 20,0,0
+          dc.b 0,0,0
+
+text      dcb 'TRAINED BY MCA, INTRO BY RTS'
+          dcb ', A RELEASE BY LYNCHMOB, '
+          dcb 'GREETZ FLY OUT TO: ANTROX...CORSAIR & DAX...CAPITOL'
+          dcb '...CENSOR...FAIRLIGHT...LEGEND...LYNCHMOB...'
+          dcb 'PREMIERE...ROMKIDS...AND YOU...                           ' 
+          dcb 255
+
+;************** END OF FILE DATA ****************************************
+
+;end:	  dct	$80200+(end-start)
+;	  dcw	0
+;	  dcw	$8000-(end-start)
+;	  dcb	0
+;         dcb   'EOF'
+

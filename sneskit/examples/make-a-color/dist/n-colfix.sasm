@@ -1,0 +1,637 @@
+	heap	O=512k			;max 128k object buffer
+
+	SIZE	4			;4 32KBLOCKS
+
+	LROM				;YES, PLEASE SPLIT IN 32K HUNKS
+	SMC+				;YES, WE WANT A SMC HEADER
+	DBUG
+	SYM+
+
+START	SEI
+	PHK
+	PLB
+	CLC
+	XCE
+
+	SEP	#$30	;A,X,Y AT 8  BIT
+
+	.INCLUDE	DH0:FAMICOM/INCLUDE/RESETHANDLER.I
+
+;==========================================================================
+;               START OF SNES REGISTER INITIALIZATION
+;==========================================================================
+;
+	   SEP #$30     ; X,Y,A are 8 bit numbers
+	   LDA #$8F     ; screen off, full brightness
+	   STA $2100    ; brightness + screen enable register
+	   LDA #$00     ;
+	   STA $2101    ; Sprite register (size + address in VRAM)
+	   LDA #$00
+	   STA $2102    ; Sprite registers (address of sprite memory [OAM])
+	   STA $2103    ;    ""                       ""
+	   LDA #$00     ; Mode 0
+	   STA $2105    ; Graphic mode register
+	   LDA #$00     ; no planes, no mosaic
+	   STA $2106    ; Mosaic register
+	   LDA #$00     ;
+	   STA $2107    ; Plane 0 map VRAM location
+	   LDA #$00
+	   STA $2108    ; Plane 1 map VRAM location
+	   LDA #$00
+	   STA $2109    ; Plane 2 map VRAM location
+	   LDA #$00
+	   STA $210A    ; Plane 3 map VRAM location
+	   LDA #$00
+	   STA $210B    ; Plane 0+1 Tile data location
+	   LDA #$00
+	   STA $210C    ; Plane 2+3 Tile data location
+	   LDA #$00
+	   STA $210D    ; Plane 0 scroll x (first 8 bits)
+	   STA $210D    ; Plane 0 scroll x (last 3 bits) #$0 - #$07ff
+	   STA $210E    ; Plane 0 scroll y (first 8 bits)
+	   STA $210E    ; Plane 0 scroll y (last 3 bits) #$0 - #$07ff
+	   STA $210F    ; Plane 1 scroll x (first 8 bits)
+	   STA $210F    ; Plane 1 scroll x (last 3 bits) #$0 - #$07ff
+	   STA $2110    ; Plane 1 scroll y (first 8 bits)
+	   STA $2110    ; Plane 1 scroll y (last 3 bits) #$0 - #$07ff
+	   STA $2111    ; Plane 2 scroll x (first 8 bits)
+	   STA $2111    ; Plane 2 scroll x (last 3 bits) #$0 - #$07ff
+	   STA $2112    ; Plane 2 scroll y (first 8 bits)
+	   STA $2112    ; Plane 2 scroll y (last 3 bits) #$0 - #$07ff
+	   STA $2113    ; Plane 3 scroll x (first 8 bits)
+	   STA $2113    ; Plane 3 scroll x (last 3 bits) #$0 - #$07ff
+	   STA $2114    ; Plane 3 scroll y (first 8 bits)
+	   STA $2114    ; Plane 3 scroll y (last 3 bits) #$0 - #$07ff
+	   LDA #$80     ; increase VRAM address after writing to $2119
+	   STA $2115    ; VRAM address increment register
+	   LDA #$00
+	   STA $2116    ; VRAM address low
+	   STA $2117    ; VRAM address high
+	   STA $211A    ; Initial Mode 7 setting register
+	   STA $211B    ; Mode 7 matrix parameter A register (low)
+	   LDA #$01
+	   STA $211B    ; Mode 7 matrix parameter A register (high)
+	   LDA #$00
+	   STA $211C    ; Mode 7 matrix parameter B register (low)
+	   STA $211C    ; Mode 7 matrix parameter B register (high)
+	   STA $211D    ; Mode 7 matrix parameter C register (low)
+	   STA $211D    ; Mode 7 matrix parameter C register (high)
+	   STA $211E    ; Mode 7 matrix parameter D register (low)
+	   LDA #$01
+	   STA $211E    ; Mode 7 matrix parameter D register (high)
+	   LDA #$00
+	   STA $211F    ; Mode 7 center position X register (low)
+	   STA $211F    ; Mode 7 center position X register (high)
+	   STA $2120    ; Mode 7 center position Y register (low)
+	   STA $2120    ; Mode 7 center position Y register (high)
+	   STA $2121    ; Color number register ($0-ff)
+	   STA $2123    ; BG1 & BG2 Window mask setting register
+	   STA $2124    ; BG3 & BG4 Window mask setting register
+	   STA $2125    ; OBJ & Color Window mask setting register
+	   STA $2126    ; Window 1 left position register
+	   STA $2127    ; Window 2 left position register
+	   STA $2128    ; Window 3 left position register
+	   STA $2129    ; Window 4 left position register
+	   STA $212A    ; BG1, BG2, BG3, BG4 Window Logic register
+	   STA $212B    ; OBJ, Color Window Logic Register (or,and,xor,xnor)
+	   LDA #$01
+	   STA $212C    ; Main Screen designation (planes, sprites enable)
+	   LDA #$00
+	   STA $212D    ; Sub Screen designation
+	   LDA #$00
+	   STA $212E    ; Window mask for Main Screen
+	   STA $212F    ; Window mask for Sub Screen
+	   LDA #$30
+	   STA $2130    ; Color addition & screen addition init setting
+	   LDA #$00
+	   STA $2131    ; Add/Sub sub designation for screen, sprite, color
+	   LDA #$E0
+	   STA $2132    ; color data for addition/subtraction
+	   LDA #$00
+	   STA $2133    ; Screen setting (interlace x,y/enable SFX data)
+	   LDA #$00
+	   STA $4200    ; Enable V-blank, interrupt, Joypad register
+	   LDA #$FF
+	   STA $4201    ; Programmable I/O port
+	   LDA #$00
+	   STA $4202    ; Multiplicand A
+	   STA $4203    ; Multiplier B
+	   STA $4204    ; Multiplier C
+	   STA $4205    ; Multiplicand C
+	   STA $4206    ; Divisor B
+	   STA $4207    ; Horizontal Count Timer
+	   STA $4208    ; Horizontal Count Timer MSB (most significant bit)
+	   STA $4209    ; Vertical Count Timer
+	   STA $420A    ; Vertical Count Timer MSB
+	   STA $420B    ; General DMA enable (bits 0-7)
+	   STA $420C    ; Horizontal DMA (HDMA) enable (bits 0-7)
+	   STA $420D    ; Access cycle designation (slow/fast rom)
+;===========================================================================
+;                        END OF INIT ROUTINE
+;===========================================================================
+	rep     #$30    ; X,Y,A fixed -> 16 bit mode
+	lda     #$0000
+	tcd
+	sep     #$20    ; Accumulator ->  8 bit mode
+	lda     #$10            ; Screen map data @ VRAM location $1000
+	sta     $2107           ; Plane 0 Map location register
+	lda     #$02            ; Plane 0 Tile graphics @ $2000
+	sta     $210b           ; Plane 0 Tile graphics register
+	lda     #$00            ; MODE 0 value
+	sta     $2105           ; Graphics mode register
+	lda     #$01            ; Plane 0 value (bit one)
+	sta     $212c           ; Plane enable register
+	lda     #$00
+	sta     $2121           ; Set color number to 0 (background)
+	stz     $2122           ; BLACK lo byte
+	stz     $2122           ; BLACK hi byte
+	lda     #$46            ; white color, lower 8 bits
+	sta     $2122           ; write to next color number (01)
+	lda     #$60
+	sta     $2122           ; enter same value to color number (01)
+	lda     #$ff
+	sta     $2122           ; write to next color number (01)
+	sta     $2122           ; enter same value to color number (01)
+	sta     $2122           ; write to next color number (01)
+	sta     $2122           ; enter same value to color number (01)
+	lda     #$01
+	sta     $4200           ; ENABLE JOYPAD READ (bit one)
+;==========================================================================
+;                      Start transfer of graphics to VRAM
+;==========================================================================
+	ldx     #$2000          ; Assign VRAM location $2000 to $2116/7
+	stx     $2116           ; writing to $2118/9 will store data here!
+	ldy     #$0000
+loadtile lda    charset,y        ; Get CHARACTER SET DATA (Font DATA)
+	sta     $2118           ; store bitplane 1
+	sta     $2119           ; clear bitplane 2 and increase VRAM address
+	iny
+	cpy     #$0200          ; Transfer $0200 bytes
+	bne     loadtile
+
+	ldx     #$2000
+	stx     $2116
+	ldx     #$000f
+ffloop  lda     #$ff
+	sta     $2118
+	stz     $2119
+	dex
+	bne     ffloop
+	ldx     #$1000          ; Assign VRAM location $1000 to $2116/7
+	stx     $2116
+	ldx     #$0000
+text    lda     screen,x        ; Get ASCII text data
+	and     #$3f            ; we only want the first 64 characters
+				; convert ascii to C64 screen code
+	sta     $2118
+	stz     $2119           ; clear unwanted bits, no H/V flipping
+	inx
+	cpx     #$0400          ; transfer entire screen
+				; $20*$20=$0400  (1024 bytes)
+	bne     text
+
+	lda     #$0f            ; SCREEN ENABLED, FULL BRIGHTNESS
+	sta     $2100           ;
+	cli                     ; Clear interrupt bit
+	lda     #$41            ; ** change this to change the starting
+	sta     $00
+	lda     #$f4            ; ** color. (high byte=$00 low=$01)
+	sta     $01
+
+run     jsr     loop
+	jsr     joyp
+	bra     run
+
+joyp    lda     $4210           ; check for Vertical blank
+	and     #$80
+	beq     joyp            ; no blank..  jump back!
+joyp2   lda     $4210           ; check for Vertical blank
+	and     #$80
+	beq     joyp2           ; no blank..  jump back!
+joyp3   lda     $4210           ; check for Vertical blank
+	and     #$80
+	beq     joyp3           ; no blank..  jump back!
+	
+	lda     $4212           ; is joypad ready to be read?
+	and     #$01
+	bne     joyp            ; no? go back until it is!
+	lda     $4219           ; read joypad high byte
+	bit     #$08
+	bne     incred
+	bit     #$04
+	bne     decred
+	bit     #$01
+	bne     incgrn
+	bit     #$02
+	bne     decgrn
+	bit     #$80
+	bne     incblu
+	bit     #$40
+	bne     decblu
+	bit     #$10
+	bne     START1
+	bra     joyp
+
+START1	JMP	START
+
+incred  lda     $01
+	and     #$1f
+	cmp     #$1f
+	beq     increde
+	inc     $01
+increde rts
+
+decred  lda     $01
+	and     #$1f
+	beq     decrede
+	dec     $01
+decrede rts
+
+incgrn  lda     $00
+	and     #$03
+	cmp     #$03
+	beq     incgrn1
+incgrn2 lda     $01
+	and     #$e0
+	cmp     #$e0
+	beq     incgrn3
+	lda     #$20
+	clc
+	adc     $01
+	sta     $02
+	lda     $01
+	and     #$1f
+	ora     $02
+	sta     $01
+	rts
+incgrn1 lda     $01
+	and     #$e0
+	cmp     #$e0
+	bne     incgrn2
+	rts
+incgrn3 inc     $00
+	lda     $01
+	and     #$1f
+	sta     $01
+	rts
+
+decblu  bra     decbluj
+
+decgrn  lda     $01
+	and     #$e0
+	beq     decgrn2
+decgrn1 rol	a
+	rol	a
+	rol	a
+	rol	a
+	dec	a
+	ror	a
+	ror	a
+	ror	a
+	ror	a
+	sta     $02
+	lda     $01
+	and     #$1f
+	ora     $02
+	sta     $01
+decgrn3 rts
+decgrn2 lda     $00
+	and     #$03
+	beq     decgrn3
+	dec     $00
+	lda     #$e0
+	ora     $01
+	sta     $01
+	rts
+
+incblu  lda     $00
+	and     #$7c
+	cmp     #$7c
+	beq     incblu1
+	lda     $00
+	ror	a
+	ror	a
+	inc	a
+	rol	a
+	rol	a
+	sta     $00
+incblu1 rts
+
+decbluj lda     $00
+	bit     #$7c
+	beq     decblu1
+	ror	a
+	ror	a
+	dec	a
+	rol	a
+	rol	a
+	sta     $00
+decblu1 rts
+
+loop    lda     $4210
+	and     #$80
+	beq     loop
+	
+	lda     #$80
+	sta     $2100
+	ldx     #$1243
+	stx     $2116
+	lda     $00
+	ror	a
+	ror	a
+	ror	a
+	ror	a
+	and     #$0f
+	clc
+	adc     #$30
+	sta     $2118
+	stz     $2119
+	lda     $00
+	and     #$0f
+	clc
+	adc     #$30
+	sta     $2118
+	stz     $2119
+	
+	lda     $01
+	ror	a
+	ror	a
+	ror	a
+	ror	a
+	and     #$0f
+	clc
+	adc     #$30
+	sta     $2118
+	stz     $2119
+	lda     $01
+	and     #$0f
+	clc
+	adc     #$30
+	sta     $2118
+	stz     $2119
+	lda     #$20
+	sta     $2118
+	stz     $2119
+	sta     $2118
+	stz     $2119
+	
+	
+	lda     $00
+	and     #$80
+	rol	a
+	clc
+	adc     #$30
+	sta     $2118
+	stz     $2119
+;        
+	lda     #$20
+	sta     $2118
+	stz     $2119
+;
+
+	lda     $00
+	and     #$40
+	rol	a
+	rol	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $00
+	and     #$20
+	rol	a
+	rol	a
+	rol	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $00
+	and     #$10
+	rol	a
+	rol	a
+	rol	a
+	rol	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $00
+	and     #$08
+	ror	a
+	ror	a
+	ror	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $00
+	and     #$04
+	ror	a
+	ror	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+;
+	lda     #$20
+	sta     $2118
+	stz     $2119
+;
+	lda     $00
+	and     #$02
+	ror	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $00
+	and     #$01
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+
+	lda     $01
+	and     #$80
+	rol	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+	
+	lda     $01
+	and     #$40
+	rol	a
+	rol	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $01
+	and     #$20
+	rol	a
+	rol	a
+	rol	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+;
+	lda     #$20
+	sta     $2118
+	stz     $2119
+;
+	lda     $01
+	and     #$10
+	rol	a
+	rol	a
+	rol	a
+	rol	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $01
+	and     #$08
+	ror	a
+	ror	a
+	ror	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $01
+	and     #$04
+	ror	a
+	ror	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $01
+	and     #$02
+	ror	a
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     $01
+	and     #$01
+	adc     #$30
+	sta     $2118
+	stz     $2119
+
+	lda     #$01
+	sta     $2121
+	lda     $01
+	sta     $2122
+	lda     $00
+	sta     $2122
+	lda     #$0f
+	sta     $2100
+	rts
+
+;============================================================================
+;= Cyber Font-Editor V1.4  Rel. by Frantic (c) 1991-1992 Sanity Productions =
+;============================================================================
+charset 
+	dc.b     $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff ;'@'
+	dc.b     $00,$3c,$66,$7e,$66,$66,$66,$00 ;'A'
+	dc.b     $00,$7c,$66,$7c,$66,$66,$7c,$00 ;'B'
+	dc.b     $00,$3c,$66,$60,$60,$66,$3c,$00 ;'C'3
+	dc.b     $00,$78,$6c,$66,$66,$6c,$78,$00 ;'D'
+	dc.b     $00,$7e,$60,$78,$60,$60,$7e,$00 ;'E'
+	dc.b     $00,$7e,$60,$78,$60,$60,$60,$00 ;'F'
+	dc.b     $00,$3c,$66,$60,$6e,$66,$3c,$00 ;'G'7
+	dc.b     $00,$66,$66,$7e,$66,$66,$66,$00 ;'H'
+	dc.b     $00,$3c,$18,$18,$18,$18,$3c,$00 ;'I'
+	dc.b     $00,$1e,$0c,$0c,$0c,$6c,$38,$00 ;'J'
+	dc.b     $00,$6c,$78,$70,$78,$6c,$66,$00 ;'K'
+	dc.b     $00,$60,$60,$60,$60,$60,$7e,$00 ;'L'
+	dc.b     $00,$63,$77,$7f,$6b,$63,$63,$00 ;'M'
+	dc.b     $00,$66,$76,$7e,$7e,$6e,$66,$00 ;'N'
+	dc.b     $00,$3c,$66,$66,$66,$66,$3c,$00 ;'O'f
+	dc.b     $00,$7c,$66,$66,$7c,$60,$60,$00 ;'P'
+	dc.b     $00,$3c,$66,$66,$66,$3c,$0e,$00 ;'Q'
+	dc.b     $00,$7c,$66,$66,$7c,$6c,$66,$00 ;'R'
+	dc.b     $00,$3e,$60,$3c,$06,$66,$3c,$00 ;'S'
+	dc.b     $00,$7e,$18,$18,$18,$18,$18,$00 ;'T'
+	dc.b     $00,$66,$66,$66,$66,$66,$3c,$00 ;'U'
+	dc.b     $00,$66,$66,$66,$66,$3c,$18,$00 ;'V'
+	dc.b     $00,$63,$63,$6b,$7f,$77,$63,$00 ;'W'17
+	dc.b     $00,$66,$3c,$18,$3c,$66,$66,$00 ;'X'
+	dc.b     $00,$66,$66,$3c,$18,$18,$18,$00 ;'Y'
+	dc.b     $00,$7e,$0c,$18,$30,$60,$7e,$00 ;'Z'
+	dc.b     $00,$00,$FF,$00,$00,$00,$00,$0F ;'['
+	dc.b     $00,$3c,$66,$7e,$66,$66,$66,$00 ;'A'
+;	dc.b     $00,$00,$FF,$00,$00,$00,$00,$00 ;'\'
+	dc.b     $03,$1D,$E1,$01,$01,$01,$01,$01 ;']'
+	dc.b     $80,$80,$80,$80,$80,$80,$80,$80 ;'^'
+	dc.b     $07,$03,$03,$07,$07,$0F,$0F,$1F ;'_'1f
+	dc.b     $00,$00,$00,$00,$00,$00,$00,$00 ;' '
+	dc.b     $C0,$E0,$F0,$F0,$F0,$F8,$F8,$F8 ;'!'
+	dc.b     $01,$01,$01,$01,$01,$01,$01,$01 ;'"'
+	dc.b     $80,$80,$80,$81,$87,$8F,$9F,$9F ;'#'
+	dc.b     $1F,$1F,$0F,$C0,$E1,$F3,$F7,$F7 ;'$'
+	dc.b     $F8,$F0,$E0,$06,$8F,$CF,$EF,$EF ;'%'
+	dc.b     $01,$01,$01,$09,$99,$F9,$F9,$F9 ;'&'
+	dc.b     $9F,$99,$50,$40,$40,$40,$40,$20 ;'''27
+	dc.b     $F3,$F1,$60,$07,$0F,$1F,$1F,$1F ;'('
+	dc.b     $CF,$87,$03,$F0,$F8,$F8,$F8,$F0 ;')'
+	dc.b     $F1,$E1,$82,$02,$02,$02,$02,$04 ;'*'
+	dc.b     $20,$20,$10,$10,$08,$08,$04,$04 ;'+'
+	dc.b     $00,$00,$00,$00,$00,$18,$18,$30 ;','
+	dc.b     $F0,$E0,$E0,$C0,$C0,$E0,$F0,$00 ;'-'
+	dc.b     $00,$00,$00,$00,$00,$18,$18,$00 ;'.'
+	dc.b     $04,$04,$08,$08,$10,$10,$20,$20 ;'/'2f
+
+	dc.b     $00,$3c,$66,$6e,$76,$66,$3c,$00 ;'0'30
+	dc.b     $00,$18,$38,$18,$18,$18,$7e,$00 ;'1'31
+	dc.b     $00,$7c,$06,$0c,$30,$60,$7e,$00 ;'2'
+	dc.b     $00,$7e,$06,$1c,$06,$66,$3c,$00 ;'3'
+	dc.b     $00,$0e,$1e,$36,$7f,$06,$06,$00 ;'4'
+	dc.b     $00,$7e,$60,$7c,$06,$66,$3c,$00 ;'5'
+	dc.b     $00,$3e,$60,$7c,$66,$66,$3c,$00 ;'6'
+	dc.b     $00,$7e,$06,$0c,$0c,$0c,$0c,$00 ;'7'
+	dc.b     $00,$3c,$66,$3c,$66,$66,$3c,$00 ;'8'
+	dc.b     $00,$3c,$66,$3e,$06,$66,$3c,$00 ;'9'39
+	dc.b     $00,$3c,$66,$7e,$66,$66,$66,$00 ;'A'3a
+	dc.b     $00,$7c,$66,$7c,$66,$66,$7c,$00 ;'B'
+	dc.b     $00,$3c,$66,$60,$60,$66,$3c,$00 ;'C'
+	dc.b     $00,$78,$6c,$66,$66,$6c,$78,$00 ;'D'
+	dc.b     $00,$7e,$60,$78,$60,$60,$7e,$00 ;'E'
+	dc.b     $00,$7e,$60,$78,$60,$60,$60,$00 ;'F'3f
+
+
+;               ;12345678901234567890123456789012
+screen  dc.b     "                                "
+	dc.b     "                                "
+	dc.b     "                                "
+	dc.b     "                                "
+	dc.b     "                                "
+	dc.b     "                                "
+	dc.b     "                                "
+	dc.b     "                                "
+	dc.b     "        HERE IS THE COLOR       "
+	dc.b     "                                "
+	dc.b     "  @@@@@@@@@@@@@@@@@@@@@@@@@@@@  "
+	dc.b     "  @@@@@@@@@@@@@@@@@@@@@@@@@@@@  "
+	dc.b     "  @@@@@@@@@@@@@@@@@@@@@@@@@@@@  "
+	dc.b     "                                "
+	dc.b     "        Y DEC B INC  BLUE       "
+	dc.b     "        L DEC R INC  GREEN      "
+	dc.b     "        D DEC U INC  RED        "
+	dc.b     "                                "
+	dc.b     "                                "
+	dc.b     "           BLUE  GREEN RED      "
+	dc.b     "                                "
+	dc.b     "     FIXED TO BE MORE USEFUL    "
+	dc.b     "     I LIKE SWITCHING TO DOS    "
+	dc.b     "                                "
+	dc.b     "         BY X\D/NIGHTF\LL       "
+	dc.b     "                                "
+	dc.b     "   USE RESET OR ST\RT TO EXIT   "
+	dc.b     "                                "
+	dc.b     "                                "
+
+
+	org	$fffc
+	dc.b	$00,$80

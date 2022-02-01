@@ -1,0 +1,790 @@
+Mode 7 Trainer Source
+;
+;
+;
+;           CODE: THE WHITE KNIGHT
+;       COMPUTER: AMIGA 2000/030/25Mhz/4Mb RAM
+;      ASSEMBLER: SASM 1.0
+;         EDITOR: CygnusEd Professional V3.5
+;           FONT: from a COMMODORE 64 COLLECTION
+;
+; HARDWARE TOOLS: SUPER MAGICOM from FRONT FAREAST
+;                 AMIGA <-> SUPER MAGICOM TRANSFER CABLE
+;                 YES! all Hobbyists tools!  No need to pay $8,000.00 or
+;                 whatever the other commercial tools cost
+;
+; for more info, EMAIL: ANTIROX@TNP.COM
+;
+;
+;
+;
+;
+;
+;
+;
+
+	heap	O=128k			;max 128k object buffer
+	size	4		
+	lrom				;yes, please split in 32k hunks
+	smc+
+	org	$c000
+
+	jmp	slow
+	jmp	cheat
+	jmp	copy
+start:	sei
+	phk
+	plb
+	clc
+	xce
+           SEP #$30
+           LDA #$8F
+           STA $2100
+           LDA #$01
+           STA $2101
+           LDA #$00
+           STA $2102
+           STA $2103
+           LDA #$01
+           STA $2105
+           LDA #$00
+           STA $2106
+           LDA #$01
+           STA $2107
+           LDA #$11
+           STA $2108
+           LDA #$7A
+           STA $2109
+           LDA #$79
+           STA $210A
+           LDA #$00
+           STA $210B
+           LDA #$77
+           STA $210C
+           LDA #$00
+           STA $210D
+           STA $210D
+           STA $210E
+           STA $210E
+           STA $210F
+           STA $210F
+           STA $2110
+           STA $2110
+           STA $2111
+           STA $2111
+           STA $2112
+           STA $2112
+           STA $2113
+           STA $2113
+           STA $2114
+           STA $2114
+           LDA #$80
+           STA $2115
+           LDA #$00
+           STA $2116
+           STA $2117
+           STA $211A
+           STA $211B
+           LDA #$01
+           STA $211B
+           LDA #$00
+           STA $211C
+           STA $211C
+           STA $211D
+           STA $211D
+           STA $211E
+           LDA #$01
+           STA $211E
+           LDA #$00
+           STA $211F
+           STA $211F
+           STA $2120
+           STA $2120
+           STA $2121
+           STA $2123
+           STA $2124
+           STA $2125
+           STA $2126
+           STA $2127
+           STA $2128
+           STA $2129
+           STA $212A
+           STA $212B
+           LDA #$01
+           STA $212C
+           LDA #$00
+           STA $212D
+           LDA #$00
+           STA $212E
+           STA $212F
+           LDA #$30
+           STA $2130
+           LDA #$00
+           STA $2131
+           LDA #$E0
+           STA $2132
+           LDA #$00
+           STA $2133
+           LDA #$00
+           STA $4200
+           LDA #$FF
+           STA $4201
+           LDA #$00
+           STA $4202
+           STA $4203
+           STA $4204
+           STA $4205
+           STA $4206
+           STA $4207
+           STA $4208
+           STA $4209
+           STA $420A
+           STA $420B
+           STA $420C
+           STA $420D
+       
+
+main:	rep	#$30	; X,Y,A fixed -> 16 bit mode
+	sep	#$20	; Accumulator ->  8 bit mode
+
+	ldx #$00
+wram	stz $0100,x
+	inx
+	cpx #$2000
+	bne wram
+
+	lda #$80
+	sta $2115
+	ldx #$00
+	stx $2116
+vram	lda	#$20
+	sta $2118
+	stz $2119
+	inx
+	cpx #$8000
+	bne vram
+	
+	lda #$8f
+	sta $2100
+	jsr screen
+	jsr color
+	jsr texton
+	jsr HDMA
+	jsr loadx
+	lda #$0f
+	sta $2100
+	stz $0100
+	stz $0101
+	stz $0102
+	stz $0103
+	stz $0104
+	stz $0105
+	stz $0109
+	stz $010a		; current pos
+	stz $010b
+	stz $010c		; joypad slow down
+
+	ldx #$00
+orig	lda startat,x
+	sta $0110,x
+	inx
+	cpx #10
+	bne orig
+
+forever jsr vrtb
+	jsr loadx
+	jsr boards
+	jsr joypad
+	lda $0108
+	and #$10
+	beq forever
+	jmp reset
+
+screen:	lda #$10	; Plane 1 TILES @ $1000
+	sta $2107
+	lda #$02	; Plane 1 @ $2000
+	sta $210b
+	lda #$07	; MODE 7
+	sta $2105
+
+	lda #$01
+	sta $212c
+
+	lda #$80
+	sta $2115
+	ldx #$00
+	stx $2116
+cls	lda	#$20
+	sta $2118
+	stz $2119
+	inx
+	cpx #$8000
+	bne cls
+
+;
+;	REAL TIME 64 -> MODE 7 CONVERT START
+;
+	ldx #$00
+	stx $2116
+	stz $0101
+	inc $0101
+rltime	lda font+2,x
+	;eor	#$ff
+	sta $0100
+	ldy #$00
+minisub	lda $0100
+	and #$80
+	bne blank
+	lda $0101
+	and	#$07
+	lda	#$01
+	sta $2119
+	jmp next
+blank	stz $2119
+next	clc
+	cld
+	lda $0100
+	asl a
+	sta $0100
+	inc $0101
+	iny
+	cpy #$08
+	bne minisub
+	stz $0101
+	inc $0101
+	inx
+	cpx #640
+	bne rltime
+;
+;	REAL TIME 64 -> MODE 7 CONVERT END
+;
+	   lda #$e0
+           STA $211B
+           STz $211B
+           STz $211C
+           STz $211C
+           STz $211D
+           STz $211D
+           STz $211E
+           LDA #$01
+           STA $211E
+	lda #$80
+           STa $211F
+           STz $211F
+	LDA #$C3
+           STa $2120
+           STz $2120
+	
+	stz $210d
+	stz $210d
+	lda #$01
+	sta $210e
+	stz $210e
+	rts
+
+color: stz $2121
+	ldx #$00
+fill: 	lda col,x
+	sta $2122
+	inx
+	cpx #$12
+	bmi fill
+	rts
+
+texton:	stz $2115
+	ldx #640
+	stx $2116
+	ldy #$00
+	tyx
+textprt lda menu,x
+	and #$3f
+	beq endit
+	sta $2118
+	iny
+	cpy #32
+	bne noclrit
+	ldy #00
+cleart	lda	#$20
+	sta $2118
+	iny
+	cpy #96
+	bne cleart
+	ldy #$00
+noclrit	inx
+	jmp textprt
+endit:	rts
+
+
+
+HDMA:   ldx	#$00			; HDMA LIST TABLE for
+	ldx	#$00			; HDMA LIST TABLE for
+hdmlp2:	lda	onelist,x		; $2122 at $001200
+	sta	$0200,x			; is TRANSFERRED
+	STA	$0220,X
+	STA	$0240,X
+	inx				;
+	cpx	#$07*3			;
+	bmi	hdmlp2			;
+	lda	#$01
+	sta	$4200
+	LDA #$02		;
+	STA $4300		; 1 BYTE for this HDMA CHANNEL
+	STA $4310		; 1 BYTE for this HDMA CHANNEL
+	STA $4320		; 1 BYTE for this HDMA CHANNEL
+	LDA #$1b		; USE $211b
+	STA $4301
+	LDA #$1E		; USE $211b
+	STA $4311
+	LDA #$1f		; USE $211f
+	STA $4321
+	LDA #$00		;
+	STA $4302		;
+	LDA #$20
+	STA $4312		;
+	LDA #$40
+	STA $4322		;
+	LDA #$02		; HDMA LIST 1 AT LOCATION $000200
+	STA $4303		;			  $000220
+	STZ $4304		;			  $000240
+	STA $4313		;
+	STZ $4314		;
+	STA $4323		;
+	STZ $4324		;
+	lda	#$07		;ENABLE 2 HDMAs
+	sta	$420c
+
+	lda #$80
+	sta $0241
+	sta $0244
+	sta $0247
+	sta $024a
+	sta $024d
+	stz $0250
+	rts
+
+loadx:	ldx $0100
+	lda sine,x
+	sec
+	sbc	#$40
+	sta $4202
+	lda #$02
+	sta $4203
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	lda $4216
+	sta $0207
+	lda $4217
+	sta $0208
+	inx
+	stx $0100
+	lda sine,x
+	cmp #1
+	bne noreset
+	ldx #$00
+	stx $0100
+noreset	ldx $0104
+	lda sine2,x
+	sta $4202
+	lda #$02
+	sta $4203
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	lda $4216
+	sta $020d
+	STA $022d
+	lda $4217
+	inx
+	stx $0104
+	lda sine2,x
+	cmp #1
+	bne noreset2
+	ldx #$00
+	stx $0104
+noreset2 rts
+
+vrtb:	lda	$4210
+	and	#$80
+	cmp	#$00
+	beq	vrtb
+	rts
+
+joyskip rts
+joypad	inc $010c
+	lda $010c
+	cmp #$07
+	bne joyskip
+joyagn	lda	$4212
+	and	#$01
+	bne	joyagn
+        lda     $4219
+        sta     $0108
+        lda     $4218
+        sta     $0109
+	stz $010c
+
+	lda $0108
+	and #$04
+	beq tryup
+	jsr down
+	jmp tryprss
+tryup	lda $0108
+	and #$08
+	beq tryprss
+	jsr up
+	jmp joycom
+tryprss	lda $0108
+	and #$80
+	beq trya
+	jsr decrease
+	jmp joycom
+trya	lda $0109
+	and #$80
+	beq joycom
+	jsr increase
+joycom	jsr choicedisp
+	rts
+
+decrease ldx $010a
+	 lda type,x
+	 cmp #$00
+	 bne numdown
+	 jmp exclusive
+numdown lda $0110,x
+	cmp min,x
+	beq numdcm 
+	dec $0110,x
+numdcm	 rts
+
+increase ldx $010a
+	 lda type,x
+	 cmp #$00
+	 bne numup
+	 jmp exclusive
+numup   lda $0110,x
+	cmp max,x
+	beq numucm 
+	inc $0110,x
+numucm	 rts
+
+exclusive lda $0110,x
+	  eor #$ff
+	  sta $0110,x	
+	  rts
+
+
+
+
+down	lda $010a
+	cmp numo
+	beq nodown
+	lda $0203
+	clc
+	adc #$08
+	sta $0203
+	sta $0223
+	sta $0243
+	lda $0209
+	sec
+	sbc #$08
+	sta $0209
+	sta $0229
+	sta $0249
+	inc $010a
+nodown	rts
+
+up	lda $010a
+	cmp #$00
+	beq noup
+	lda $0203
+	sec
+	sbc #$08
+	sta $0203
+	sta $0223
+	sta $0243
+	lda $0209
+	clc
+	aDc #$08
+	sta $0209
+	sta $0229
+	sta $0249
+	dec $010a
+noup	rts
+
+choicedisp
+	ldy #666
+	ldx #$00
+btnloop	sty $2116
+	lda type,x
+	cmp #00
+	bne trynum
+	lda $0110,x
+	cmp #$00
+	bne sayyes
+	jsr no
+	jmp yano
+sayyes	jsr yes
+	jmp yano
+trynum	jsr num
+yano	rep	#$30	; X,Y,A fixed -> 16 bit mode
+	tya
+	clc
+	adc #128
+	tay
+	sep #$20	; Accumulator ->  8 bit mode
+	cpx numo
+	beq done
+	inx
+	jmp btnloop
+done	rts
+num	lda $0110,x
+	and #$f0
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	cmp #$0a
+	bpl letter
+	clc
+	adc #$30
+	sta $2118
+	jmp numcom
+letter	sec
+	sbc #$09
+	sta $2118
+numcom	lda $0110,x
+	and #$0f
+	cmp #$0a
+	bpl letter2
+	clc
+	adc #$30
+	sta $2118
+	jmp numend
+letter2	sec
+	sbc #$09
+	sta $2118
+numend	rts
+yes	lda #25
+	sta $2118
+	lda #05
+	sta $2118
+	lda #19
+	sta $2118
+	rts
+no	lda #14
+	sta $2118
+	inc a
+	sta $2118
+	lda #32
+	sta $2118
+	rts
+
+onelist dc.b $06,$ff,$0			; TOP DELAY
+	DC.B $20,$ff,$0			; TOP WAIT
+	dc.b $08,$ff,$0	; SELECTION LINE
+	dc.b $78,$ff,$0			; BOTTOM WAIT
+	dc.b $30,$ff,$0
+        dc.b $00,$0,$0                      ; END LIST
+
+col	dc.w	$6464,$ffff,$987B,$5073,$CC6A,$485A,$C449,$4039,$C038
+
+boards	ldx $0104
+	cpx #$0
+	beq brdnums
+	rts
+brdnums	lda #$8f
+	sta $2100
+	ldx #3072
+	stx $2116
+bbsy	ldx $0102
+	ldy #$00
+bbs	lda numbers,x
+	bne resetbb
+	ldx #$00
+	stx $0102
+	jmp bbsy
+resetbb	and #$3f
+	sta $2118
+	iny
+	inx
+	cpy #32
+	bne bbs
+	lda numbers,x
+	sta $024d
+	inx
+	stx $0102
+	lda #$0f
+	sta $2100
+	rts
+
+
+sine: 
+ dc.b  128,131,134,137,140,143,146,149,152,155,158,162,165,167,170
+ dc.b  173,176,179,182,185,188,190,193,196,198,201,203,206,208,211
+ dc.b  213,215,218,220,222,224,226,228,230,232,234,235,237,238,240
+ dc.b  241,243,244,245,246,248,249,250,250,251,252,253,253,254,254
+ dc.b  254,255,255,255,255,255,255,255,254,254,254,253,253,252,251
+ dc.b  250,250,249,248,246,245,244,243,241,240,238,237,235,234,232
+ dc.b  230,228,226,224,222,220,218,215,213,211,208,206,203,201,198
+ dc.b  196,193,190,188,185,182,179,176,173,170,167,165,162,158,155
+ dc.b  152,149,146,143,140,137,134,131
+ dc.b 1
+
+sine2:
+ dc.b  128,131,134,137,140,143,146,149,152,155,158,162,165,167,170
+ dc.b  173,176,179,182,185,188,190,193,196,198,201,203,206,208,211
+ dc.b  213,215,218,220,222,224,226,228,230,232,234,235,237,238,240
+ dc.b  241,243,244,245,246,248,249,250,250,251,252,253,253,254,254
+ dc.b  255,255,255,255,255,255,255,255,255,255,255,255,255,255,255
+ dc.b  255,255,255,255,255,255,255,255,255,255,255,255,255,255,255
+ dc.b  255,255,255,255,255,255,255,255,255,255,255,255,255,255,255
+ dc.b  255,255,255,255,255,255,255,255,255,255,255,255,255,255,255
+ dc.b  254,254,253,253,252,251
+ dc.b  250,250,249,248,246,245,244,243,241,240,238,237,235,234,232
+ dc.b  230,228,226,224,222,220,218,215,213,211,208,206,203,201,198
+ dc.b  196,193,190,188,185,182,179,176,173,170,167,165,162,158,155
+ dc.b  152,149,146,143,140,137,134,131
+ dc.b  1
+
+
+font	.bin	ram:char0
+
+reset	stz $420c
+	ldx #$00
+battery	lda $0110,x
+	sta $708000,x
+	inx
+	cpx #$0a
+	bne battery
+	sep #$30
+	lda #$00
+	pha
+	plb
+	dc.b $5c,$08,$80,$20
+
+
+
+
+	     ;65432109876543211234567890123456
+menu:	DC.B "    SLOW ROM FIX:         NO    "
+	dc.b "    UNLIMITED CONTINUES:  NO    "
+	dc.b "    UNLIMITED HP:         NO    "
+	dc.b "    UNLIMITED SP:         NO    "
+	dc.b "    START W/MORE POWER:   NO    "
+	DC.B "                                "
+	dc.b "                                "
+	dc.b "                                "
+	dc.b "           CYBORG 009           "
+	dc.b "      TRAINED BY -PAN-/ATX      "
+	dc.b "                                "
+	DC.B "           ON 2-13-94           "
+	dc.b "         CALL ANTHROX AT:       "
+	DC.B "         (718) 630-9818         "
+	dc.b 0
+
+numbers	dc.b "       TRAINED BY: -PAN-        ",$80
+	DC.B "   INTRO BY: THE WHITE KNIGHT   ",$80
+	DC.B 0
+
+;
+;options section
+;
+
+numo	dc.b 4,0	;# options -1
+type	dc.b $00,$00,$00,$00,$00,$00,$01,$00,$00,$00
+min	dc.b $00,$00,$00,$00,$00,$00,$01,$00,$00,$00
+max	dc.b $00,$00,$00,$00,$00,$00,$04,$00,$00,$00
+startat	dc.b $00,$00,$00,$00,$00,$00,$01,$00,$00,$00
+
+
+
+slow:
+	pha
+	php
+	sep	#$30
+	dc.b	$af,$00,$80,$70
+	beq	noslowrom
+	dc.b	$a9,$00,$8d,$0d,$42
+	plp
+	pla
+	rtl
+noslowrom:
+	dc.b	$a9,$01,$8d,$0d,$42
+	plp
+	pla
+	rtl
+	
+cheat:
+	dc.b	$ad,$1a,$42
+	dc.b	$8d,$5e,$04
+	phy
+	pha
+	phx
+	php
+	sep	#$30
+	dc.b	$af,$01,$80,$70
+	beq	l2
+	dc.b	$a9,$03,$8d,$31,$1a
+
+l2:
+	dc.b	$af,$02,$80,$70
+	beq	l3
+	dc.b	$a9,$3c,$8d,$e1,$0a
+l3:
+	dc.b	$af,$03,$80,$70
+	beq	l4
+	dc.b	$a9,$3c,$8d,$e3,$0a
+l4:
+	
+	plp
+	plx
+	pla
+	ply
+	rts
+copy:
+	dc.b	$a9,$00,$40,$8d,$e7,$19
+	php
+	dc.b	$af,$04,$80,$70
+	bne	copygood
+	plp
+	dc.b	$5c,$12,$b5,$19
+
+copygood:
+
+	rep	#$30
+	sep	#$20
+	ldx	#$0000
+copysnazz:
+	lda	>snazz,x
+	sta	$06cd,x
+	inx
+	cpx	#$0080
+	bne	copysnazz
+	plp
+	dc.b	$5c,$23,$b5,$19
+
+snazz:
+	dc.b	$88,$13,$88,$13,$0A,$00,$B8,$0B,$C4,$09,$08,$00,$00,$00,$00,$00
+	dc.b	$A0,$0F,$A0,$0F,$B8,$0B,$B8,$0B,$B8,$0B,$0A,$00,$00,$00,$00,$00
+	dc.b	$7C,$15,$7C,$15,$B8,$0B,$B8,$0B,$40,$1F,$19,$00,$00,$00,$00,$00
+	dc.b	$70,$17,$70,$17,$0A,$00,$08,$52,$08,$52,$19,$00,$00,$00,$00,$00
+	dc.b	$A0,$0F,$A0,$0F,$0A,$00,$A0,$0F,$10,$27,$0A,$00,$00,$00,$00,$00
+	dc.b	$B8,$0B,$B8,$0B,$0A,$00,$B8,$0B,$C4,$09,$0A,$00,$00,$00,$00,$00
+	dc.b	$B8,$0B,$B8,$0B,$05,$00,$B8,$0B,$C4,$09,$19,$00,$00,$00,$00,$00
+	dc.b	$88,$13,$88,$13,$0F,$00,$B8,$0B,$40,$1F,$19,$00,$00,$00,$00,$00
+
+
+	org	$fffc
+	dcr.w	start
+	.pad
