@@ -769,7 +769,7 @@ std::string driver_name = "SNESmod";
 
 	Instrument::~Instrument() {
 		if( EnvelopeData )
-			delete EnvelopeData;
+			delete[] EnvelopeData;
 	}
 
 	/***********************************************************************************************
