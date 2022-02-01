@@ -28,10 +28,10 @@ namespace IT2SPC {
 
 u8 CurrentInstrument = 0;
 u8 patch_byte = 0x3C;
-u8 max_instruments = 64;
-u8 max_length = 200;
-u8 max_patterns = 64;
-u8 max_samples = 64;
+constexpr u8 max_instruments = 64;
+constexpr u8 max_length = 200;
+constexpr u8 max_patterns = 64;
+constexpr u8 max_samples = 64;
 u16 header_size = 0;
 u16 driver_base = 0x400;
 u16 module_base = 0x18a8;
@@ -880,7 +880,7 @@ std::string driver_name = "SNESmod";
 			
 			Modules[0]->Export( file, false );
 
-			u16 source_table[max_samples*2];
+			u16 source_table[max_samples*2]{};
 
 			//!!TODO export sample list and create sample table!
 			for( u32 i = 0; i < Modules[0]->SourceList.size(); i++ ) {
