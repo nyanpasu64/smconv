@@ -4,8 +4,8 @@ SNESCHK		:= $(SNESTOOLS)/sneschk
 SMCONV		:= $(SNESTOOLS)/smconv
 EXHIROM		:= $(SNESTOOLS)/exhirom
 CC65		:= $(SNESKIT)/cc65/bin
-AS		:= $(CC65)/lin-x86-64/ca65
-LD		:= $(CC65)/lin-x86-64/ld65
+AS		:= $(CC65)/ca65
+LD		:= $(CC65)/ld65
 
 %.o : %.asm
 	@echo Assembling :: $(notdir $<)
